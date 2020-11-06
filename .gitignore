@@ -1,0 +1,18 @@
+# ignore directories
+/.idea/
+__pycache__
+bibfiles
+data
+figures
+Include
+Lib
+other
+shapefiles
+Scripts
+slides_docs
+word_vectors
+Config
+
+# ignore a single file
+pyvenv.cfg
+detect_traffic/config.cfg
