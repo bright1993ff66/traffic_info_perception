@@ -199,7 +199,7 @@ def transform_string_time_to_datetime(time_string, target_time_zone, convert_utc
     return final_time_object
 
 
-def transform_datatime_string_to_datetime(string, target_timezone):
+def transform_datetime_string_to_datetime(string, target_timezone):
     """
     :param string: the string which records the time of the posted tweets(this string's timezone is HK time)
     :return: a datetime object which could get access to the year, month, day easily
