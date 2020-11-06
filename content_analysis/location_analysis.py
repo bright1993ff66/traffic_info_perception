@@ -3,6 +3,7 @@ import os
 import data_paths
 import numpy as np
 from collections import Counter
+import statsmodels.api as sm
 
 from data_paths import shapefile_path
 from visualizations import correlation_plot
@@ -24,7 +25,7 @@ def count_traffic_weibos_in_districts(dataframe, district_name_column):
     return result_dataframe_sorted
 
 
-def create_official_fishnet_dataframe(data:pd.DataFrame, considered_column):
+def create_official_fishnet_dataframe(data: pd.DataFrame, considered_column: str) -> pd.DataFrame:
     """
     Count the number of real-world traffic events in each fishnet cell
     :param data: dataframe saving the location of real-world traffic event in which fishnet cell
@@ -38,11 +39,11 @@ def create_official_fishnet_dataframe(data:pd.DataFrame, considered_column):
     result_dataframe['cell_num'] = cell_list
     result_dataframe['count'] = value_list
     result_dataframe_sorted = result_dataframe.sort_values(by='count', ascending=False)
-    result_dataframe_reindex = result_dataframe_sorted.reset_index(drop = True)
+    result_dataframe_reindex = result_dataframe_sorted.reset_index(drop=True)
     return result_dataframe_reindex
 
 
-def create_weibo_fishnet_dataframe(data:pd.DataFrame, considered_column):
+def create_weibo_fishnet_dataframe(data: pd.DataFrame, considered_column: str) -> pd.DataFrame:
     """
     Count the number of traffic Weibos in each fishnet cell
     :param data: dataframe saving the location of traffic Weibo in which fishnet cell
@@ -88,7 +89,7 @@ def create_weibo_fishnet_dataframe(data:pd.DataFrame, considered_column):
     return result_dataframe_reindex
 
 
-def create_data_for_regres(official_traffic_data, traffic_weibo_data, considered_count:int):
+def create_data_for_regres(official_traffic_data, traffic_weibo_data, considered_count: int):
     """
     Create the data for regression based on the spatial join result based on traffic data from official traffic
     account and traffic relevant Weibo
@@ -105,12 +106,33 @@ def create_data_for_regres(official_traffic_data, traffic_weibo_data, considered
         'The fishnet cell column is not prepared!'
     merged_data = pd.merge(weibo_fishnet_count, official_fishnet_count, how='inner', on=['cell_num'])
     merged_data_select = merged_data.loc[merged_data['count'] >= considered_count]
-    merged_data_select_sorted = merged_data_select.sort_values(by = 'count', ascending=False)
+    merged_data_select_sorted = merged_data_select.sort_values(by='count', ascending=False)
     merged_data_select_reindex = merged_data_select_sorted.reset_index(drop=True)
     return merged_data_select_reindex
 
 
-if __name__ =='__main__':
+def regres_analysis(dataframe: pd.DataFrame, feature_columns: list, predict_column: list, output_dataframe: bool):
+    """
+    Conduct the regression analysis given dataframe containing features and y values
+    :param dataframe: the dataframe for regression analysis
+    :param feature_columns: the columns saving the independent variables
+    :param predict_column: the column saving the dependent variable
+    :param output_dataframe: whether we save the pandas dataframe regression result to local
+    """
+    feature_values = dataframe[feature_columns].values
+    y_values = dataframe[predict_column]
+    mod = sm.OLS(y_values, feature_values)
+    res = mod.fit()
+    if output_dataframe:
+        res_summary = res.summary(xname=['# of Accidents', '# of Congestions', '# of Conditions', 'Sentiment Index'])
+        results_as_html = res_summary.tables[1].as_html()
+        regression_result = pd.read_html(results_as_html, header=0, index_col=0)[0]
+        regression_result.to_csv(os.path.join(data_paths.weibo_data_path, 'regression_result.csv'), encoding='utf-8')
+    else:
+        print(res.summary())
+
+
+if __name__ == '__main__':
     combined_dataframe = pd.read_csv(os.path.join(data_paths.weibo_data_path, 'combined_traffic_weibo_shanghai.csv'),
                                      encoding='utf-8', index_col=0)
     district_count = count_traffic_weibos_in_districts(combined_dataframe, district_name_column='Name')
@@ -127,3 +149,6 @@ if __name__ =='__main__':
     correlation_plot(concat_data_for_regres, considered_column_list=['acc_count', 'conges_count',
                                                                      'condition_count', 'sent_index', 'count'],
                      save_filename='total_weibo_sentiment_official_count_correlation.png')
+    regres_analysis(concat_data_for_regres,
+                    feature_columns=['acc_count', 'conges_count', 'condition_count', 'sent_index'],
+                    predict_column=['count'], output_dataframe=False)
