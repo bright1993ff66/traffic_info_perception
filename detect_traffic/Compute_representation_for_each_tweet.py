@@ -6,14 +6,13 @@ import time
 import os
 import gensim.models as gs
 import warnings
-import csv
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split
 import pickle
 from matplotlib import pyplot as plt
 import seaborn as sns
 
-from traffic_weibo import traffic_word_set_update
+from content_analysis.traffic_weibo import traffic_word_set_update
 
 warnings.filterwarnings(action='ignore', category=UserWarning, module='gensim')
 warnings.filterwarnings(action='ignore', category=DeprecationWarning, module='gensim')
@@ -218,10 +217,10 @@ if __name__ == '__main__':
     weibo_fasttext_model = gs.KeyedVectors.load_word2vec_format(os.path.join(data_paths.word_vec_path,
                                                                              'sgns.weibo.bigram-char.bz2'))
     print('Generating the word embedding for traffic event detection...')
-    word2vec = WeiboClassifierDataCreationWord2vec(weibo_filename='traffic_weibo_one_keyword_for_label_3010.xlsx',
+    word2vec = WeiboClassifierDataCreationWord2vec(weibo_filename='traffic_weibo_one_keyword_for_label_4747.xlsx',
                                          word2vec_saving_path=data_paths.word_vec_path,
-                                         classdataset_name='Weibo', word2vec_model=weibo_fasttext_model,
+                                         classdataset_name='Weibo4747', word2vec_model=weibo_fasttext_model,
                                          weibo_vec_filename='sgns.weibo.bigram-char.bz2')
-    word2vec.generate_word_count_distribution(data_paths.figures_path, 'word_count_dist.png')
-    word2vec.data_creation()
+    # word2vec.generate_word_count_distribution(data_paths.figures_path, 'word_count_dist.png')
+    # word2vec.data_creation()
 
