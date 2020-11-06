@@ -7,12 +7,12 @@ from collections import Counter
 # For plotting
 from wordcloud import WordCloud
 from matplotlib import pyplot as plt
-import seaborn as sns; sns.set()
+import seaborn as sns; sns.set(font_scale=2)
 
-from data_paths import other_path, figures_path, weibo_data_path, shapefile_path, random_seed
+from data_paths import other_path, figures_path, shapefile_path, random_seed
 from process_text.text_preprocessing import preprocessing_weibo
-from utils import transform_datatime_string_to_datetime
-from time_analysis import timezone_shanghai
+from utils import transform_datetime_string_to_datetime
+import content_analysis.time_analysis
 
 
 def generate_wordcloud(dataframe, text_column, save_filename):
@@ -58,20 +58,24 @@ def create_hour_weekday_plot(dataframe:pd.DataFrame, color_hour:str, color_weekd
     :param color_hour: the color for the hour plot
     :param color_weekday: the color for the weekday plot
     """
-    fig, axis = plt.subplots(1,1, figsize=(10, 8))
-    dataframe['local_time'] = dataframe.apply(
-        lambda row: transform_datatime_string_to_datetime(row['local_time'], target_timezone=timezone_shanghai), axis=1)
-    dataframe['hour'] = dataframe.apply(lambda row: row['local_time'].hour, axis=1)
-    dataframe['weekday'] = dataframe.apply(lambda row: row['local_time'].weekday(), axis=1)
+    dataframe_copy = dataframe.copy()
+    try:
+        dataframe_copy['local_time'] = dataframe_copy.apply(
+            lambda row: transform_datetime_string_to_datetime(
+                row['local_time'], target_timezone=content_analysis.time_analysis.timezone_shanghai), axis=1)
+    except TypeError:
+        print('The datetime object has been created!')
+    dataframe_copy['hour'] = dataframe_copy.apply(lambda row: row['local_time'].hour, axis=1)
+    dataframe_copy['weekday'] = dataframe_copy.apply(lambda row: row['local_time'].weekday(), axis=1)
     fig_hour, axis_hour = plt.subplots(1, 1, figsize=(10, 8))
     fig_weekday, axis_weekday = plt.subplots(1, 1, figsize=(10, 8))
     hours_name_list = list(range(24))
     weekday_names_list = list(range(7))
     hour_count_dict = {key:0 for key in hours_name_list}
     weekday_count_dict = {key:0 for key in weekday_names_list}
-    for value, sub_data in dataframe.groupby('hour'):
+    for value, sub_data in dataframe_copy.groupby('hour'):
         hour_count_dict[value] = sub_data.shape[0]
-    for value, sub_data in dataframe.groupby('weekday'):
+    for value, sub_data in dataframe_copy.groupby('weekday'):
         weekday_count_dict[value] = sub_data.shape[0]
     hours_value_list = [hour_count_dict[hour] for hour in hours_name_list]
     weekdays_value_list = [weekday_count_dict[weekday] for weekday in weekday_names_list]
@@ -108,6 +112,29 @@ def sentiment_distribution(dataframe:pd.DataFrame, sent_column:str, save_filenam
     axis_sent.set_xticks(sent_name_list)
     axis_sent.set_xticklabels(sent_name_list, fontsize=16)
     fig_sent.savefig(os.path.join(figures_path, save_filename))
+
+
+def correlation_plot(dataframe, considered_column_list:list, save_filename:str):
+    """
+    Create the correlation plot for some columns of values in a dataframe
+    All the values in the considered columns should be either int or float
+    :param dataframe: the dataframe saving some values of some attributes.
+    :param considered_column_list: a list containing the selected colnames
+    :param save_filename: the name of the figure saving to local
+    :return:
+    """
+    df = dataframe[considered_column_list]
+    renamed_dict = {'acc_count': 'Accident Num', 'conges_count': 'Congestion Num', 'condition_count':'Condition Num',
+                    'sent_index': 'Sentiment Index', 'count': 'Count'}
+    df_renamed = df.rename(columns = renamed_dict)
+    palette = sns.color_palette("light:b", as_cmap=True)
+    for colname in df_renamed:
+        assert df_renamed[colname].dtype in ['float64', 'int64'], 'The data type of column {} is not right!'.format(
+            colname)
+    figure, axis = plt.subplots(1, 1, figsize=(25, 18), dpi=150)
+    sns.heatmap(df_renamed.corr(), ax=axis, cmap=palette)
+    axis.set(yticks=np.arange(df_renamed.shape[1])+0.5)
+    figure.savefig(os.path.join(figures_path, save_filename))
 
 
 if __name__ == '__main__':
