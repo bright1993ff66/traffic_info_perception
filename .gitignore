@@ -12,7 +12,10 @@ Scripts
 slides_docs
 word_vectors
 Config
+detect_traffic/best_models
+detect_traffic/__pycache__
 
 # ignore a single file
 pyvenv.cfg
 detect_traffic/config.cfg
+detect_traffic/traffic_detect_performance.docx
