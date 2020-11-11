@@ -154,6 +154,28 @@ def get_traffic_weibo(weibo_dataframe: pd.DataFrame, traffic_word_set: set) -> p
     return traffic_dataframe_reset_index
 
 
+def get_official_traffic_type(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """
+    Annotate the Weibos posted by official traffic account with different traffic information type
+    :param dataframe: the dataframe saving Weibos posted by official traffic account in Shanghia
+    :return: dataframe with traffic info type annotation, saved in its 'traffic_type' column
+    """
+    assert 'text' in dataframe, 'The text column should contain Weibo text posted by official traffic account.'
+    traffic_type_list = []
+    for index, row in dataframe.iterrows():
+        decision1 = any(acc_word in row['text'] for acc_word in accident_traffic_word_set)
+        decision2 = any(conges_word in row['text'] for conges_word in congestion_traffic_word_set)
+        if decision1:
+            traffic_type_list.append('accident')
+        elif (not decision1) and decision2:
+            traffic_type_list.append('congestion')
+        else:
+            traffic_type_list.append('condition')
+    dataframe_copy = dataframe.copy()
+    dataframe_copy['traffic_type'] = traffic_type_list
+    return dataframe_copy
+
+
 def get_weibos_from_users_json(data_path, json_filename, save_path, user_set):
     """
     Get Weibo data posted from a user id set based on the json files
@@ -342,7 +364,7 @@ def _combine_labeled_unlabeled(labeled_data, unlabeled_data):
     combined_data = pd.concat([labeled_data, unlabeled_data], axis=0)
     combined_data_sorted = combined_data.sort_values(by='label_3').copy()
     assert type(combined_data_sorted) == pd.DataFrame, 'some error happens'
-    combined_data_final = combined_data_sorted.drop_duplicates(subset = ['weibo_id'], keep = 'first').reset_index(drop = True)
+    combined_data_final = combined_data_sorted.drop_duplicates(subset = ['weibo_id'], keep='first').reset_index(drop = True)
     return combined_data_final
 
 
