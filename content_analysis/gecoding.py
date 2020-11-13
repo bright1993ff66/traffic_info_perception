@@ -2,13 +2,9 @@ import googlemaps
 import pandas as pd
 import numpy as np
 import os
-import spacy
 
 from data_paths import api_key, weibo_data_path, shanghai_jun_aug_traffic_sent
 from process_text.text_preprocessing import preprocessing_traffic_accounts, preprocessing_weibo
-
-
-nlp = spacy.load('zh_core_web_lg')
 
 
 def check_in_shanghai(loc_string):
@@ -35,26 +31,26 @@ def geocoding_string(gmap_client: googlemaps.Client, string: str) -> list:
     geocode_result = googlemaps.client.geocode(client=gmap_client, address=string,
                                                components={'administrative_area_level_1': 'Shanghai Shi',
                                                            'country': 'CN'},
-                                               bounds={'northeast':[31.867652, 121.974040],
+                                               bounds={'northeast': [31.867652, 121.974040],
                                                        'southwest': [30.688885, 120.854422]})
     return geocode_result
 
 
-def geocoding_reverse(gmap_client, latitude:float, longitude:float) -> list:
+def geocoding_reverse(gmap_client, latitude: float, longitude: float) -> list:
     """
     Reverse geocode a text string
     :param gmap_client: the Google map client
     :param latitude: the latitude value
     :param longitude: the longitude value
-    :return:
+    :return: a list of location information which is near the given latitude and longitude
     """
     reverse_result = googlemaps.client.reverse_geocode(client=gmap_client, latlng=(latitude, longitude))
     return reverse_result
 
 
-def geocode_weibo_dataframe(gmap_client, weibo_dataframe:pd.DataFrame, text_column_name:str, saved_filename:str):
+def geocode_weibo_dataframe(gmap_client, weibo_dataframe: pd.DataFrame, text_column_name: str, saved_filename: str):
     """
-    Geocode the Weibo dataframe
+    Geocode the Weibo dataframe. A numpy array would be saved to local containing the geocoded result
     :param gmap_client: a Google Map client
     :param weibo_dataframe: a studied Weibo dataframe
     :param text_column_name: the text column we consider for geocoding
@@ -72,9 +68,10 @@ def geocode_weibo_dataframe(gmap_client, weibo_dataframe:pd.DataFrame, text_colu
     np.save(os.path.join(weibo_data_path, saved_filename), geocode_result)
 
 
-def geocode_offical(gmap_client, official_traffic_data):
+def geocode_offical(gmap_client, official_traffic_data: pd.DataFrame):
     """
-    Geocode the traffic-related Weibo posted by official account
+    Geocode the traffic-related Weibo posted by official account. A numpy array would be saved to local containing
+    the geocoded result
     :param gmap_client: the Google map client
     :param official_traffic_data: the scrapped traffic Weibos posted by official traffic accounts
     """
@@ -93,11 +90,10 @@ def geocode_offical(gmap_client, official_traffic_data):
     np.save(os.path.join(weibo_data_path, 'geocode_traffic_account_final.npy'), geocode_result)
 
 
-def get_geocoded_not_geocoded_weibos(path:str):
+def get_geocoded_not_geocoded_weibos(path: str):
     """
-    Get the traffic weibos with latiude longitude info and Weibo without latitude and longitude info
+    Get the traffic weibos with latiude longitude info and traffic Weibo without latitude and longitude info
     :param path: the studied data path
-    :param save_local: the path we use to save the generated data
     :return:
     """
     dataframe_list = []
@@ -123,6 +119,7 @@ def process_nongeocoded_traffic(dataframe):
     Process the nongeocoded Weibos. The following two types of nongeocoded Weibos are considered:
     - Select the Weibo data whose weibo is labelled as 2 but reposts are labelled as 0 or 1
     - Select the Weibo data whose reposts is labelled as 2
+    So either the Weibo or the repost should be labeled as 2
     :param dataframe: the nongeocoded Weibo dataframe
     :return: weibo traffic data, repost traffic data
     """
@@ -137,7 +134,7 @@ def process_nongeocoded_traffic(dataframe):
     return weibo_traffic_data_reindex, repost_traffic_data_reindex
 
 
-def construct_location_dataframe(location_list):
+def construct_location_dataframe(location_list: list) -> pd.DataFrame:
     """
     Construct the location dataframe for geocoding
     :param location_list: the geocoded location list given by the Google Geocoding API
@@ -151,12 +148,20 @@ def construct_location_dataframe(location_list):
     result_index_list = []
     for index_val, locations in zip(index_val_list, location_list):
         for loc in locations:
-            if loc == []: continue
-            assert type(loc) == dict, 'The data type is not that right! It should be a dictionary'
-            address_list.append(loc['formatted_address'])
-            latitude_list.append(loc['geometry']['location']['lat'])
-            longitude_list.append(loc['geometry']['location']['lng'])
-            result_index_list.append(index_val)
+            if not loc: continue
+            if type(loc) == list:
+                address_list.append(loc[0]['formatted_address'])
+                latitude_list.append(loc[0]['geometry']['location']['lat'])
+                longitude_list.append(loc[0]['geometry']['location']['lng'])
+                result_index_list.append(index_val)
+            elif type(loc) == dict:
+                address_list.append(loc['formatted_address'])
+                latitude_list.append(loc['geometry']['location']['lat'])
+                longitude_list.append(loc['geometry']['location']['lng'])
+                result_index_list.append(index_val)
+            else:
+                print('Something wrong with the loc: {}. Check!'.format(loc))
+                break
     result_dataframe['location'] = address_list
     result_dataframe['loc_lat'] = latitude_list
     result_dataframe['loc_lon'] = longitude_list
@@ -164,7 +169,7 @@ def construct_location_dataframe(location_list):
     return result_dataframe
 
 
-def merge_data_using_index(data_with_sent:pd.DataFrame, filtered_location_dataframe:pd.DataFrame) -> pd.DataFrame:
+def merge_data_using_index(data_with_sent: pd.DataFrame, filtered_location_dataframe: pd.DataFrame) -> pd.DataFrame:
     """
     Merge the Weibo dataframe with sentiment and the filtered location dataframe
     :param data_with_sent: dataframe with sentiment label, weibo & repost text, etc
@@ -177,7 +182,7 @@ def merge_data_using_index(data_with_sent:pd.DataFrame, filtered_location_datafr
     return combined_dataframe
 
 
-def create_main_dataframe(studied_weibo_data, studied_repost_data):
+def create_main_dataframe(studied_weibo_data:pd.DataFrame, studied_repost_data:pd.DataFrame):
     """
     Create the dataframe for two types of data
     :param studied_weibo_data: the studied weibo data of which the repost is not labelled as 2
@@ -201,25 +206,3 @@ def create_main_dataframe(studied_weibo_data, studied_repost_data):
     weibo_main_data.to_csv(os.path.join(weibo_data_path, 'nongeocoded_weibo_data_for_arcmap.csv'), encoding='utf-8')
     repost_main_data.to_csv(os.path.join(weibo_data_path, 'nongeocoded_repost_data_for_arcmap.csv'), encoding='utf-8')
     return weibo_main_data, repost_main_data
-
-
-if __name__ == '__main__':
-    gmaps = googlemaps.Client(key=api_key)
-
-    # Get the geocode weibos
-    # geocoded_weibos, non_geocode_weibos = get_geocoded_not_geocoded_weibos(path=shanghai_jun_aug_traffic_sent)
-    # weibo_traffic, repost_traffic = process_nongeocoded_traffic(dataframe=non_geocode_weibos)
-    # weibo_traffic.to_csv(os.path.join(weibo_data_path, 'non_geocoded_weibo_traffic.csv'), encoding='utf-8')
-    # repost_traffic.to_csv(os.path.join(weibo_data_path, 'non_geocoded_repost_traffic.csv'), encoding='utf-8')
-    # print('Geocoding the weibos...')
-    # geocode_weibo_dataframe(gmap_client=gmaps, weibo_dataframe=weibo_traffic, text_column_name='text',
-    #                         saved_filename='non_geocode_weibo_traffic_locations.npy')
-    # print('Geocoding the reposts...')
-    # geocode_weibo_dataframe(gmap_client=gmaps, weibo_dataframe=repost_traffic, text_column_name='retweeters_text',
-    #                         saved_filename='non_geocode_repost_traffic_locations.npy')
-    # Load the geocoded location list
-    print('Geocoding the traffic Weibos posted from official accounts...')
-    official_traffic = pd.read_excel(os.path.join(weibo_data_path, '1980308627_final.xlsx'), index_col=0)
-    geocode_offical(gmap_client=gmaps, official_traffic_data=official_traffic)
-    # create_main_dataframe(studied_weibo_data=weibo_traffic, studied_repost_data=repost_traffic)
-
