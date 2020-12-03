@@ -16,3 +16,6 @@ Config
 # ignore a single file
 pyvenv.cfg
 detect_traffic/config.cfg
+
+# ignore paths
+data_paths.py
