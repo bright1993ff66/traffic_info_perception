@@ -14,10 +14,10 @@ from sklearn.utils import shuffle
 import data_paths
 from utils import transform_string_time_to_datetime, combine_some_data
 from process_text.text_preprocessing import create_stopwords_list
+from content_analysis.geocoding import construct_location_dataframe, check_in_shanghai
 
 nlp = zh_core_web_sm.load()
 # traffic-related word dictionary
-traffic_word_set = {'堵', '拥堵', '车祸', '剐蹭', '事故', '绕行', '追尾', '相撞', '塞车', '路况'}
 traffic_word_set_update = {'堵', '拥堵', '阻塞','塞车', '拥挤', '车祸', '剐蹭', '事故', '撞', '追尾', '相撞', '路况', '路段',
                            '路线', '封道','封路', '绕行', '畅通', '立交', '高架', '快速路', '大桥', '隧道', '驾驶', '避让',
                            '车距'}
@@ -174,6 +174,44 @@ def get_official_traffic_type(dataframe: pd.DataFrame) -> pd.DataFrame:
     dataframe_copy = dataframe.copy()
     dataframe_copy['traffic_type'] = traffic_type_list
     return dataframe_copy
+
+
+def official_data_acc_conges_for_arcmap():
+    """
+    Prepare the official actual traffic data for ArcMap
+    :return:
+    """
+    official_june = pd.read_excel(os.path.join(data_paths.weibo_data_path, '1980308627_june.xlsx'))
+    official_july_aug = pd.read_excel(os.path.join(data_paths.weibo_data_path, '1980308627_july_aug.xlsx'))
+    combined_official = pd.concat([official_june, official_july_aug], axis=0)
+    combined_official_with_type = get_official_traffic_type(combined_official)
+    geocoded_locations = np.load(os.path.join(data_paths.weibo_data_path, 'geocode_traffic_account.npy'),
+                                 allow_pickle=True).tolist()
+    combined_official_with_type['locations'] = geocoded_locations
+    assert combined_official_with_type.发布时间.dtype.name == 'datetime64[ns]', 'The type of date is not right!'
+    combined_official_sorted = combined_official_with_type.sort_values(by='发布时间')
+    combined_official_accident = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'accident']
+    combined_official_congestion = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'congestion']
+    combined_official_condition = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'condition']
+    accident_location_list = list(combined_official_accident['locations'])
+    congestion_location_list = list(combined_official_congestion['locations'])
+    condition_location_list = list(combined_official_condition['locations'])
+    accident_location_dataframe = construct_location_dataframe(location_list=accident_location_list)
+    congestion_location_dataframe = construct_location_dataframe(location_list=congestion_location_list)
+    condition_location_dataframe = construct_location_dataframe(location_list=condition_location_list)
+    accident_shanghai = accident_location_dataframe[
+        accident_location_dataframe.apply(lambda row: check_in_shanghai(row['location']), axis=1)]
+    congestion_shanghai = congestion_location_dataframe[
+        congestion_location_dataframe.apply(lambda row: check_in_shanghai(row['location']), axis=1)]
+    condition_shanghai = condition_location_dataframe[
+        condition_location_dataframe.apply(lambda row: check_in_shanghai(row['location']), axis=1)]
+    accident_shanghai.to_csv(os.path.join(data_paths.weibo_data_path, 'official_accident_data.csv'),
+                                       encoding='utf-8')
+    congestion_shanghai.to_csv(os.path.join(data_paths.weibo_data_path, 'official_congestion_data.csv'),
+                                         encoding='utf-8')
+    print('We have got {} accidents, {} congestions, {} conditions'.format(
+        accident_shanghai.shape[0], congestion_shanghai.shape[0], condition_shanghai.shape[0]))
+
 
 
 def get_weibos_from_users_json(data_path, json_filename, save_path, user_set):
@@ -455,15 +493,16 @@ def count_id_posted_traffic(path):
 
 if __name__ == '__main__':
     print('Load the data...')
-    weibo_shanghai_apr_may = combine_some_data(path=data_paths.shanghai_apr_may, sample_num=None)
-    data_labeled = pd.read_excel(os.path.join(data_paths.weibo_data_path,
-                                              'traffic_weibo_one_keyword_for_label_3010.xlsx'), index_col=0).head(3000)
-    print('The data has been loaded!')
-    data_unlabeled = build_data_for_label(dataframe=weibo_shanghai_apr_may, traffic_word_set=traffic_word_set_update,
-                                          interested_months_list=[4,5], timezone=timezone_shanghai)
-    data_for_label = _combine_labeled_unlabeled(labeled_data=data_labeled, unlabeled_data=data_unlabeled)
-    data_for_label_head = data_for_label.head(10000) # select first 10,000 rows to label
-    data_for_label_shuffled = shuffle(data_for_label_head)
-    data_for_label_reindex = data_for_label_shuffled.reset_index(drop=True)
-    data_for_label_reindex.to_excel(os.path.join(data_paths.weibo_data_path, 'data_for_label_final.xlsx'))
-    weibo_shanghai_apr_may.to_csv(os.path.join(data_paths.weibo_data_path, 'shanghai_apr_may.csv'), encoding='utf-8')
+    # weibo_shanghai_apr_may = combine_some_data(path=data_paths.shanghai_apr_may, sample_num=None)
+    # data_labeled = pd.read_excel(os.path.join(data_paths.weibo_data_path,
+    #                                           'traffic_weibo_one_keyword_for_label_3010.xlsx'), index_col=0).head(3000)
+    # print('The data has been loaded!')
+    # data_unlabeled = build_data_for_label(dataframe=weibo_shanghai_apr_may, traffic_word_set=traffic_word_set_update,
+    #                                       interested_months_list=[4,5], timezone=timezone_shanghai)
+    # data_for_label = _combine_labeled_unlabeled(labeled_data=data_labeled, unlabeled_data=data_unlabeled)
+    # data_for_label_head = data_for_label.head(10000) # select first 10,000 rows to label
+    # data_for_label_shuffled = shuffle(data_for_label_head)
+    # data_for_label_reindex = data_for_label_shuffled.reset_index(drop=True)
+    # data_for_label_reindex.to_excel(os.path.join(data_paths.weibo_data_path, 'data_for_label_final.xlsx'))
+    # weibo_shanghai_apr_may.to_csv(os.path.join(data_paths.weibo_data_path, 'shanghai_apr_may.csv'), encoding='utf-8')
+    official_data_acc_conges_for_arcmap()
