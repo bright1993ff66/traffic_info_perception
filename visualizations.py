@@ -341,46 +341,152 @@ def hotspot_day_plot(hotspot_dataframe: pd.DataFrame, title: str, set_percentile
     :param save_filename: the filename of the saved figure
     :return:
     """
-    dataframe_copy = hotspot_dataframe.copy()
-    dataframe_copy['local_time'] = dataframe_copy.apply(lambda row: transform_datetime_string_to_datetime(
-        row['local_time'], target_timezone=timezone_shanghai), axis=1)
-    dataframe_copy['month'] = dataframe_copy.apply(lambda row: row['local_time'].month, axis=1)
-    dataframe_copy['day'] = dataframe_copy.apply(lambda row: row['local_time'].day, axis=1)
-    weibo_dataframe = dataframe_copy.loc[dataframe_copy['retweeters_text'] == 'no retweeters']
-    repost_dataframe = dataframe_copy.loc[dataframe_copy['retweeters_text'] != 'no retweeters']
+    # Cope with the dataframe
+    hotspot_data_copy = hotspot_dataframe.copy()
+    hotspot_data_copy['local_time'] = hotspot_data_copy.apply(
+        lambda row: transform_datetime_string_to_datetime(row['local_time'], target_timezone=timezone_shanghai), axis=1)
+    hotspot_data_copy['month'] = hotspot_data_copy.apply(lambda row: row['local_time'].month, axis=1)
+    hotspot_data_copy['day'] = hotspot_data_copy.apply(lambda row: row['local_time'].day, axis=1)
+    if 'retweeters_text' not in hotspot_data_copy:
+        hotspot_data_renamed = hotspot_data_copy.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        hotspot_data_renamed = hotspot_data_copy.copy()
+    weibo_hotspot_dataframe = hotspot_data_renamed.loc[hotspot_data_renamed['retweeters_text'] == 'no retweeters']
+    repost_hotspot_dataframe = hotspot_data_renamed.loc[hotspot_data_renamed['retweeters_text'] != 'no retweeters']
+
+    # Counting the number of original posts and reposts
     start_date, end_date = datetime(2012, 6, 1), datetime(2012, 8, 31)
-    count_list = []
+    hotspot_count_list = []
     days = mdates.drange(start_date, end_date, timedelta(days=1))
     for day_index, xtick in zip(list(range((end_date - start_date).days)), days):
         check_date = start_date + timedelta(days=day_index)
         check_month, check_day = check_date.month, check_date.day
-        select_weibo_dataframe = weibo_dataframe.loc[
-            (weibo_dataframe['month'] == check_month) & (weibo_dataframe['day'] == check_day)]
-        select_repost_dataframe = repost_dataframe.loc[
-            (repost_dataframe['month'] == check_month) & (repost_dataframe['day'] == check_day)]
-        count_list.append(select_weibo_dataframe.shape[0] + select_repost_dataframe.shape[0])
+        select_weibo_hotspot_dataframe = weibo_hotspot_dataframe.loc[
+            (weibo_hotspot_dataframe['month'] == check_month) & (weibo_hotspot_dataframe['day'] == check_day)]
+        select_repost_hotspot_dataframe = repost_hotspot_dataframe.loc[
+            (repost_hotspot_dataframe['month'] == check_month) & (repost_hotspot_dataframe['day'] == check_day)]
+        hotspot_count_list.append(select_weibo_hotspot_dataframe.shape[0] + select_repost_hotspot_dataframe.shape[0])
 
     # For the days that having number of weibos bigger than a predefined the percentile
     # Highlight these days with red region; otherwise, use the blue bar
-    color_list = []
-    threshold = np.percentile(count_list, q=set_percentile)
+    hotspot_color_list = []
+    threshold = np.percentile(hotspot_count_list, q=set_percentile)
     print('The threshold is: {}'.format(threshold))
-    for count in count_list:
+    for count in hotspot_count_list:
         if count > threshold:
-            color_list.append('red')
+            hotspot_color_list.append('#FF2E52')
         else:
-            color_list.append('green')
+            hotspot_color_list.append('#FCF214')
 
     # Plot the bars
     hotspot_figure, hotspot_axis = plt.subplots(1, 1, figsize=(20, 8))
-    hotspot_axis.bar(days, count_list, color=color_list)
+    bar_width = 0.4
+    hotspot_axis.bar(days, hotspot_count_list, bar_width, color=hotspot_color_list)
 
     # xaxis setting
     hotspot_axis.xaxis_date()
     hotspot_axis.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
     hotspot_axis.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-    for label, count in zip(hotspot_axis.xaxis.get_ticklabels(), count_list):
+    for label, hotspot_count in zip(hotspot_axis.xaxis.get_ticklabels(), hotspot_count_list):
+        if hotspot_count > threshold:
+            label.set_color('red')
+            label.set_visible(True)
+        else:
+            label.set_visible(False)
+    hotspot_axis.set_xlabel('Date')
+
+    # yaxis setting
+    hotspot_axis.set_ylabel('Count')
+
+    # set the facecolor and disable the grid
+    hotspot_axis.set_facecolor('white')
+    hotspot_axis.grid(True)
+
+    # Set the title and save figure
+    hotspot_axis.margins(0)
+    hotspot_axis.set_title(title)
+    hotspot_figure.autofmt_xdate()
+    hotspot_figure.savefig(os.path.join(figures_path, save_filename))
+
+
+def hotspot_not_hotspot_day_plot(hotspot_dataframe: pd.DataFrame, not_hotspot_dataframe: pd.DataFrame, title: str,
+                                 set_percentile: float, save_filename: str) -> None:
+    """
+    Plot the number of accident or congestion Weibos posted in accident or congestion hotspots in each day
+    :param hotspot_dataframe: a pandas dataframe saving the Weibos posted in the hotspot
+    :param not_hotspot_dataframe: a pandas dataframe saving the Weibos not posted in the hotspot
+    :param title: the title of the plot
+    :param set_percentile: the percentile used to find the abnormal days with big number of traffic Weibos
+    :param save_filename: the filename of the saved figure
+    :return:
+    """
+    hotspot_data_copy, not_hotspot_data_copy = hotspot_dataframe.copy(), not_hotspot_dataframe.copy()
+    hotspot_data_copy['local_time'] = hotspot_data_copy.apply(
+        lambda row: transform_datetime_string_to_datetime(row['local_time'], target_timezone=timezone_shanghai), axis=1)
+    not_hotspot_data_copy['local_time'] = not_hotspot_data_copy.apply(
+        lambda row: transform_datetime_string_to_datetime(row['local_time'], target_timezone=timezone_shanghai), axis=1)
+    hotspot_data_copy['month'] = hotspot_data_copy.apply(lambda row: row['local_time'].month, axis=1)
+    hotspot_data_copy['day'] = hotspot_data_copy.apply(lambda row: row['local_time'].day, axis=1)
+    not_hotspot_data_copy['month'] = not_hotspot_data_copy.apply(lambda row: row['local_time'].month, axis=1)
+    not_hotspot_data_copy['day'] = not_hotspot_data_copy.apply(lambda row: row['local_time'].day, axis=1)
+
+    if 'retweeters_text' not in hotspot_data_copy:
+        hotspot_data_renamed = hotspot_data_copy.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        hotspot_data_renamed = hotspot_data_copy.copy()
+
+    if 'retweeters_text' not in not_hotspot_data_copy:
+        not_hotspot_data_renamed = not_hotspot_data_copy.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        not_hotspot_data_renamed = not_hotspot_data_copy.copy()
+
+    weibo_hotspot_dataframe = hotspot_data_renamed.loc[hotspot_data_renamed['retweeters_text'] == 'no retweeters']
+    repost_hotspot_dataframe = hotspot_data_renamed.loc[hotspot_data_renamed['retweeters_text'] != 'no retweeters']
+    weibo_not_hotspot_dataframe = not_hotspot_data_renamed.loc[
+        not_hotspot_data_renamed['retweeters_text'] == 'no retweeters']
+    repost_not_hotspot_dataframe = not_hotspot_data_renamed.loc[
+        not_hotspot_data_renamed['retweeters_text'] != 'no retweeters']
+    start_date, end_date = datetime(2012, 6, 1), datetime(2012, 8, 31)
+    hotspot_count_list, not_hotspot_count_list = [], []
+    days = mdates.drange(start_date, end_date, timedelta(days=1))
+    for day_index, xtick in zip(list(range((end_date - start_date).days)), days):
+        check_date = start_date + timedelta(days=day_index)
+        check_month, check_day = check_date.month, check_date.day
+        select_weibo_hotspot_dataframe = weibo_hotspot_dataframe.loc[
+            (weibo_hotspot_dataframe['month'] == check_month) & (weibo_hotspot_dataframe['day'] == check_day)]
+        select_repost_hotspot_dataframe = repost_hotspot_dataframe.loc[
+            (repost_hotspot_dataframe['month'] == check_month) & (repost_hotspot_dataframe['day'] == check_day)]
+        select_weibo_not_hotspot_dataframe = weibo_not_hotspot_dataframe.loc[
+            (weibo_not_hotspot_dataframe['month'] == check_month) & (weibo_not_hotspot_dataframe['day'] == check_day)]
+        select_repost_not_hotspot_dataframe = repost_not_hotspot_dataframe.loc[
+            (repost_not_hotspot_dataframe['month'] == check_month) & (repost_not_hotspot_dataframe['day'] == check_day)]
+        hotspot_count_list.append(select_weibo_hotspot_dataframe.shape[0] + select_repost_hotspot_dataframe.shape[0])
+        not_hotspot_count_list.append(select_weibo_not_hotspot_dataframe.shape[0] +
+                                      select_repost_not_hotspot_dataframe.shape[0])
+
+    # For the days that having number of weibos bigger than a predefined the percentile
+    # Highlight these days with red region; otherwise, use the blue bar
+    hotspot_color_list = []
+    threshold = np.percentile(hotspot_count_list, q=set_percentile)
+    print('The threshold is: {}'.format(threshold))
+    for count in hotspot_count_list:
         if count > threshold:
+            hotspot_color_list.append('#FF2E52')
+        else:
+            hotspot_color_list.append('#FCF214')
+
+    # Plot the bars
+    hotspot_figure, hotspot_axis = plt.subplots(1, 1, figsize=(20, 8))
+    bar_width = 0.4
+    hotspot_axis.bar(days, hotspot_count_list, bar_width, color=hotspot_color_list)
+    hotspot_axis.bar(days+bar_width, not_hotspot_count_list, bar_width, color=['#2DBFFC']*len(not_hotspot_count_list))
+
+    # xaxis setting
+    hotspot_axis.xaxis_date()
+    hotspot_axis.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+    hotspot_axis.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+    for label, hotspot_count in zip(hotspot_axis.xaxis.get_ticklabels(), hotspot_count_list):
+        if hotspot_count > threshold:
             label.set_color('red')
             label.set_visible(True)
         else:
@@ -436,4 +542,22 @@ if __name__ == '__main__':
     print('Generate wordcloud for two types of traffic events (congestion & accident)...')
     generate_wordcloud(accident_hotspot, save_filename='accident_hotspot.png')
     generate_wordcloud(conges_hotspot, save_filename='congestion_hotspot.png')
+    # Check the specific days
+    hotspot_days = {'acc': [(6, 22), (7, 23), (8, 28)], 'cgs': [(7, 11), (7, 20), (8, 8)]}
+    for traffic_type in hotspot_days:
+        if traffic_type == 'acc':
+            print('Coing with the accident relevant Weibos')
+            studied_time_list = hotspot_days[traffic_type]
+            for day_tuple in studied_time_list:
+                generate_wordcloud_in_given_day(dataframe=accident_hotspot, month=day_tuple[0], day=day_tuple[1],
+                                                save_filename='acc_wordcloud_{}_{}.png'.format(day_tuple[0],
+                                                                                               day_tuple[1]))
+        else:
+            print('Coing with the congestion relevant Weibos')
+            studied_time_list = hotspot_days[traffic_type]
+            for day_tuple in studied_time_list:
+                generate_wordcloud_in_given_day(dataframe=conges_hotspot, month=day_tuple[0], day=day_tuple[1],
+                                                save_filename='cgs_wordcloud_{}_{}.png'.format(day_tuple[0],
+                                                                                               day_tuple[1]))
+
 
