@@ -507,6 +507,47 @@ def hotspot_not_hotspot_day_plot(hotspot_dataframe: pd.DataFrame, not_hotspot_da
     hotspot_figure.savefig(os.path.join(figures_path, save_filename))
 
 
+def kde_plot(density_data: pd.DataFrame, density_colname: str, natural_break_bounds: list, save_filename: str) -> None:
+    """
+
+    :param density_data: the pandas dataframe used to save the density values
+    :param density_colname: the colname of the pandas dataframe saving the density values
+    :param natural_break_bounds: the python list saving the natural breaks
+    :param save_filename: the name of the saved figure
+    :return: None. The histplot is saved to local directory
+    """
+    assert 'acc' in save_filename or 'cgs' in save_filename, 'The saved figure name should contain traffic type: ' \
+                                                             'acc for accident and cgs for congestion'
+    dense_vals = list(density_data[density_colname])
+    figure, axis = plt.subplots(1, 1, figsize=(15, 8))
+
+    # Draw the histogram
+    if 'acc' in save_filename: # If we are studying accident
+        print('Creating the density histogram for Weibo accidents...')
+        axis.set_title('Histogram of KDE Values for Traffic Accidents with Natural Break Thresholds')
+        sns.histplot(dense_vals, ax=axis, bins=np.arange(0, 220000, 3000))
+    else: # If we are studying congestion
+        print('Creating the density histogram for Weibo congestions...')
+        axis.set_title('Histogram of KDE Values for Traffic Congestions with Natural Break Thresholds')
+        sns.histplot(dense_vals, ax=axis, bins=np.arange(0, 94000, 2000))
+
+    # Plot the 5 natural breaks
+    for index, bound in enumerate(natural_break_bounds):
+        axis.axvline(bound, linestyle='--', color='black')
+
+    # Set the xticks for the natural breaks
+    axis.set_xticks(natural_break_bounds)
+
+    # Draw the threshold line to determine the hotspot
+    threshold = np.mean(dense_vals) + 3 * np.std(dense_vals)
+    axis.axvline(threshold, linestyle='--', color='red')
+    axis.text(threshold + 1000, 40000, 'Hotspot Threshold: \n{}'.format(round(np.mean(dense_vals), 2)), color='red')
+
+    # Set the axis label and save the figure to local directory
+    axis.set_xlabel('Kernel Density Values')
+    figure.savefig(os.path.join(figures_path, save_filename), bbox_inches='tight')
+
+
 def correlation_plot(dataframe, considered_column_list:list, save_filename:str) -> None:
     """
     Create the correlation plot for some columns of values in a dataframe
