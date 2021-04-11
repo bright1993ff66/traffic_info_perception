@@ -12,9 +12,10 @@ import pytz
 from sklearn.utils import shuffle
 
 import data_paths
-from utils import transform_string_time_to_datetime, combine_some_data
+from utils import transform_string_time_to_datetime, combine_some_data, encode_time
 from process_text.text_preprocessing import create_stopwords_list
-from content_analysis.geocoding import construct_location_dataframe, check_in_shanghai
+from content_analysis.geocoding import construct_weibo_location_dataframe, construct_official_location_dataframe, \
+    check_in_shanghai
 
 nlp = zh_core_web_sm.load()
 # traffic-related word dictionary
@@ -184,21 +185,43 @@ def official_data_acc_conges_for_arcmap():
     official_june = pd.read_excel(os.path.join(data_paths.weibo_data_path, '1980308627_june.xlsx'))
     official_july_aug = pd.read_excel(os.path.join(data_paths.weibo_data_path, '1980308627_july_aug.xlsx'))
     combined_official = pd.concat([official_june, official_july_aug], axis=0)
+    # Load the combined data and locations
     combined_official_with_type = get_official_traffic_type(combined_official)
     geocoded_locations = np.load(os.path.join(data_paths.weibo_data_path, 'geocode_traffic_account.npy'),
                                  allow_pickle=True).tolist()
     combined_official_with_type['locations'] = geocoded_locations
+    # Load the filtered actual traffic accidents
+    actual_acc_records = pd.read_excel(os.path.join(data_paths.weibo_data_path, 'actual_traffic_acc_labeled.xlsx'),
+                                       index_col=0)
+    actual_acc_locations = np.load(os.path.join(data_paths.weibo_data_path, 'official_acc_locations.npy'),
+                                   allow_pickle=True).tolist()
+    actual_acc_records['locations'] = actual_acc_locations
+    actual_acc_records['local_time'] = actual_acc_records.apply(
+        lambda row: encode_time(row['time']), axis=1)
+    actual_acc_records_sorted = actual_acc_records.sort_values(by='local_time', ascending=True)
     assert combined_official_with_type.发布时间.dtype.name == 'datetime64[ns]', 'The type of date is not right!'
     combined_official_sorted = combined_official_with_type.sort_values(by='发布时间')
-    combined_official_accident = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'accident']
+    # combined_official_accident = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'accident']
     combined_official_congestion = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'congestion']
     combined_official_condition = combined_official_sorted.loc[combined_official_sorted['traffic_type'] == 'condition']
-    accident_location_list = list(combined_official_accident['locations'])
-    congestion_location_list = list(combined_official_congestion['locations'])
-    condition_location_list = list(combined_official_condition['locations'])
-    accident_location_dataframe = construct_location_dataframe(location_list=accident_location_list)
-    congestion_location_dataframe = construct_location_dataframe(location_list=congestion_location_list)
-    condition_location_dataframe = construct_location_dataframe(location_list=condition_location_list)
+    acc_loc_list, acc_text_list, acc_time_list = list(actual_acc_records_sorted['locations']), \
+                                                 list(actual_acc_records_sorted['filtered_text']), \
+                                                 list(actual_acc_records_sorted['local_time'])
+    cgs_loc_list, cgs_text_list, cgs_time_list = list(combined_official_congestion['locations']), \
+                                                 list(combined_official_congestion['text']), \
+                                                 list(combined_official_congestion['发布时间'])
+    condition_loc_list, condition_text_list, condition_time_list = list(combined_official_condition['locations']), \
+                                                                   list(combined_official_condition['text']), \
+                                                                   list(combined_official_condition['发布时间'])
+    accident_location_dataframe = construct_official_location_dataframe(location_list=acc_loc_list,
+                                                                        text_list=acc_text_list,
+                                                                        time_list=acc_time_list)
+    congestion_location_dataframe = construct_official_location_dataframe(location_list=cgs_loc_list,
+                                                                          text_list=cgs_text_list,
+                                                                          time_list=cgs_time_list)
+    condition_location_dataframe = construct_official_location_dataframe(location_list=condition_loc_list,
+                                                                         text_list=condition_text_list,
+                                                                         time_list=condition_time_list)
     accident_shanghai = accident_location_dataframe[
         accident_location_dataframe.apply(lambda row: check_in_shanghai(row['location']), axis=1)]
     congestion_shanghai = congestion_location_dataframe[
@@ -209,9 +232,10 @@ def official_data_acc_conges_for_arcmap():
                                        encoding='utf-8')
     congestion_shanghai.to_csv(os.path.join(data_paths.weibo_data_path, 'official_congestion_data.csv'),
                                          encoding='utf-8')
+    condition_shanghai.to_csv(os.path.join(data_paths.weibo_data_path, 'official_condition_data.csv'),
+                              encoding='utf-8')
     print('We have got {} accidents, {} congestions, {} conditions'.format(
         accident_shanghai.shape[0], congestion_shanghai.shape[0], condition_shanghai.shape[0]))
-
 
 
 def get_weibos_from_users_json(data_path, json_filename, save_path, user_set):
