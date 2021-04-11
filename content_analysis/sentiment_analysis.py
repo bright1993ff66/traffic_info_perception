@@ -4,7 +4,6 @@ import os
 import time
 import jiagu
 from collections import Counter
-from aip import AipNlp
 import paddlehub as hub
 
 import data_paths
@@ -88,11 +87,14 @@ def compute_sentiment_across_districts(dataframe, district_colname):
     :param district_colname: the district name
     :return: the sentiment index across districts
     """
-    select_columns = ['index_val', 'author_id', 'weibo_id', 'created_at', 'text', 'lat', 'lon', 'retweeters',
-                      'retweete_1', 'local_time', 'year', 'month', 'traffic_we', 'traffic_re', 'sent_weibo',
-                      'sent_repos', 'Name', 'datatype', 'traffic_ty']
-    rename_dict = {'traffic_we': 'traffic_weibo', 'traffic_re': 'traffic_repost', 'retweete_1': 'retweeters_text'}
-    renamed_data = dataframe[select_columns].rename(columns=rename_dict)
+    if 'traffic_weibo' in dataframe:
+        renamed_data = dataframe.copy()
+    else:
+        select_columns = ['index_val', 'author_id', 'weibo_id', 'created_at', 'text', 'lat', 'lon', 'retweeters',
+                          'retweete_1', 'local_time', 'year', 'month', 'traffic_we', 'traffic_re', 'sent_weibo',
+                          'sent_repos', 'Name', 'datatype', 'traffic_ty']
+        rename_dict = {'traffic_we': 'traffic_weibo', 'traffic_re': 'traffic_repost', 'retweete_1': 'retweeters_text'}
+        renamed_data = dataframe[select_columns].rename(columns=rename_dict)
     district_name_set_list = list(set(renamed_data[district_colname]))
     sent_district_dict = {key: [0, 0, 0] for key in district_name_set_list} # key: [positive, neutral, negative]
     for district_name, district_data in renamed_data.groupby(district_colname):
@@ -157,8 +159,8 @@ def main_sent_analysis():
 if __name__ == '__main__':
 
     # main_sent_analysis()
-    combined_traffic_data = pd.read_csv(os.path.join(data_paths.district_analysis_join_result,
-                                                  'Weibo_shanghai_across_districts.txt'), encoding='utf-8', index_col=0)
+    combined_traffic_data = pd.read_csv(os.path.join(data_paths.weibo_data_path,
+                                                  'combined_traffic_weibo_shanghai.csv'), encoding='utf-8', index_col=0)
     print(combined_traffic_data.head())
     sent_result_districts = compute_sentiment_across_districts(dataframe=combined_traffic_data, district_colname='Name')
-    sent_result_districts.to_csv(os.path.join(data_paths.weibo_data_path, 'district_sent.csv'), encoding='utf-8')
+    sent_result_districts.to_excel(os.path.join(data_paths.weibo_data_path, 'district_sent.xlsx'), encoding='utf-8')
