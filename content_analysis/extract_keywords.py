@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import jiagu
 
-from data_paths import shapefile_path, hotspot_text_path
+from data_paths import shapefile_path, hotspot_text_path, other_path
 from process_text.text_preprocessing import preprocessing_weibo
 from utils import transform_datetime_string_to_datetime, timezone_shanghai
 
@@ -35,13 +35,14 @@ def extract_keywords(dataframe, traffic_type: str, top_N_keywords_considered: in
 
 
 def extract_keywords_in_a_day(hotspot_dataframe: pd.DataFrame, month: int, day: int,
-                              top_N_keywords_considered: int) -> list:
+                              top_N_keywords_considered: int, save_filename: str) -> list:
     """
     Use TextRank to extract keywords based on Weibos posted in a given day
     :param hotspot_dataframe: the weibo hotspot dataframe
     :param month: the studied month
     :param day: the studied day
     :param top_N_keywords_considered: top N keywords to consider
+    :param save_filename: the name of the saved file having Weibos in a given day
     :return: a keyword list
     """
     dataframe_copy = hotspot_dataframe.copy()
@@ -52,6 +53,7 @@ def extract_keywords_in_a_day(hotspot_dataframe: pd.DataFrame, month: int, day: 
     select_data = dataframe_copy.loc[(dataframe_copy['month'] == month) & (dataframe_copy['day'] == day)]
     text_list = list(select_data['text'])  # Here we only consider the original Weibo text
     repost_text_list = list(select_data['retweeters_text'])
+    # Filter out the rows which don't have retweets
     repost_text_final = [text for text in repost_text_list if text != 'no retweeters']
     combined_text_list = text_list + repost_text_final
     combined_text_without_nan = list(filter(lambda x: str(x) != 'nan', combined_text_list))
@@ -60,6 +62,7 @@ def extract_keywords_in_a_day(hotspot_dataframe: pd.DataFrame, month: int, day: 
     text_string = " ".join(cleaned_text_string)
     keywords = jiagu.keywords(text_string, top_N_keywords_considered)
     final_keywords = [keyword for keyword in keywords if len(keyword) >= 2]
+    select_data.to_csv(os.path.join(other_path, save_filename), encoding='utf-8')
     return final_keywords
 
 
@@ -85,37 +88,137 @@ def keyword_extract_hotspot_main(top_N):
 
 def keyword_extract_in_given_days():
     """
-    Extract the keywords in some given days
-    :return:
+    Extract the keywords of Weibos posted in some given days in the accident and congestion hotspots
+    :return: None. The keywords are printed and the dataframes are saved to local directory
     """
-    acc_dataframe = pd.read_csv(os.path.join(hotspot_text_path, 'weibo_acc_hotspot_with_sent.csv'),
+    acc_hotspot_4 = pd.read_csv(os.path.join(hotspot_text_path, 'acc_hotspot_4.txt'),
                                 encoding='utf-8', index_col=0)
-    cgs_dataframe = pd.read_csv(os.path.join(hotspot_text_path, 'weibo_cgs_hotspot_with_sent.csv'),
-                                   encoding='utf-8', index_col=0)
-    hotspot_days = {'acc': [(6, 22), (7, 23), (8, 28)], 'cgs': [(7, 11), (7, 20), (8, 8)]}
-    for traffic_type in hotspot_days:
-        if traffic_type == 'acc':
-            print('='*10)
-            print('Generating keywords for the accident relevant Weibos')
-            studied_time_list = hotspot_days[traffic_type]
+    acc_hotspot_7 = pd.read_csv(os.path.join(hotspot_text_path, 'acc_hotspot_7.txt'),
+                                encoding='utf-8', index_col=0)
+    acc_hotspot_11 = pd.read_csv(os.path.join(hotspot_text_path, 'acc_hotspot_11.txt'),
+                                 encoding='utf-8', index_col=0)
+    acc_hotspot_19 = pd.read_csv(os.path.join(hotspot_text_path, 'acc_hotspot_19.txt'),
+                                 encoding='utf-8', index_col=0)
+
+    if 'retweeters_text' not in acc_hotspot_4:
+        acc_hotspot_4_renamed = acc_hotspot_4.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        acc_hotspot_4_renamed = acc_hotspot_4.copy()
+
+    if 'retweeters_text' not in acc_hotspot_7:
+        acc_hotspot_7_renamed = acc_hotspot_7.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        acc_hotspot_7_renamed = acc_hotspot_7.copy()
+
+    if 'retweeters_text' not in acc_hotspot_11:
+        acc_hotspot_11_renamed = acc_hotspot_11.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        acc_hotspot_11_renamed = acc_hotspot_11.copy()
+
+    if 'retweeters_text' not in acc_hotspot_19:
+        acc_hotspot_19_renamed = acc_hotspot_19.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        acc_hotspot_19_renamed = acc_hotspot_19.copy()
+
+    cgs_hotspot_1 = pd.read_csv(os.path.join(hotspot_text_path, 'cgs_hotspot_1.txt'),
+                                encoding='utf-8', index_col=0)
+    cgs_hotspot_3 = pd.read_csv(os.path.join(hotspot_text_path, 'cgs_hotspot_3.txt'),
+                                encoding='utf-8', index_col=0)
+
+    if 'retweeters_text' not in cgs_hotspot_1:
+        cgs_hotspot_1_renamed = cgs_hotspot_1.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        cgs_hotspot_1_renamed = cgs_hotspot_1.copy()
+
+    if 'retweeters_text' not in cgs_hotspot_3:
+        cgs_hotspot_3_renamed = cgs_hotspot_3.rename(columns={'retweete_1': 'retweeters_text'})
+    else:
+        cgs_hotspot_3_renamed = cgs_hotspot_3.copy()
+
+    # A dictionary saving the special days for each accident hotspot
+    # type_id: [(month, day), (month, day), ...]
+    acc_density_days = {'acc_4': [(8, 17), (8, 26), (8, 27)],
+                        'acc_7': [(6, 30), (7, 22), (7, 23)],
+                        'acc_11': [(6, 22), (8, 10), (8, 28)],
+                        'acc_19': [(8, 28), (8, 29)]}
+
+    # A dictionary saving the special days for each congestion hotspot
+    # type_id: [(month, day), (month, day), ...]
+    cgs_density_days = {'cgs_1': [(7, 11), (7, 20), (8, 8)],
+                        'cgs_3': [(8, 8)]}
+
+    print('+' * 20)
+    print('Generating keywords for accident hotspots with different density classes...')
+    for density_val in acc_density_days:
+        print('-' * 15)
+        print('Coping with the {}'.format(density_val))
+        hotspot_id = density_val[4:]
+        if density_val == 'acc_4':
+            studied_time_list = acc_density_days[density_val]
             for day_tuple in studied_time_list:
                 print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
-                keywords = extract_keywords_in_a_day(hotspot_dataframe=acc_dataframe, month=day_tuple[0],
-                                                     day=day_tuple[1], top_N_keywords_considered=30)
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=acc_hotspot_4_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='acc_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
                 print(keywords)
-            print('=' * 10)
+        elif density_val == 'acc_7':
+            studied_time_list = acc_density_days[density_val]
+            for day_tuple in studied_time_list:
+                print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=acc_hotspot_7_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='acc_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
+                print(keywords)
+        elif density_val == 'acc_11':
+            studied_time_list = acc_density_days[density_val]
+            for day_tuple in studied_time_list:
+                print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=acc_hotspot_11_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='acc_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
+                print(keywords)
         else:
-            print('=' * 10)
-            print('Generating keywords for the congestion relevant Weibos')
-            studied_time_list = hotspot_days[traffic_type]
+            studied_time_list = acc_density_days[density_val]
             for day_tuple in studied_time_list:
                 print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
-                keywords = extract_keywords_in_a_day(hotspot_dataframe=cgs_dataframe, month=day_tuple[0],
-                                                     day=day_tuple[1], top_N_keywords_considered=30)
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=acc_hotspot_19_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='acc_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
                 print(keywords)
-            print('=' * 10)
+        print('-' * 15)
+    print('+' * 20)
+
+    print('+' * 20)
+    print('Generating keywords for congestion hotspots with different density classes...')
+    for density_val in cgs_density_days:
+        print('-' * 15)
+        print('Coping with the {}'.format(density_val))
+        hotspot_id = density_val[4:]
+        if density_val == 'cgs_1':
+            studied_time_list = cgs_density_days[density_val]
+            for day_tuple in studied_time_list:
+                print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=cgs_hotspot_1_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='cgs_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
+                print(keywords)
+        else:
+            studied_time_list = cgs_density_days[density_val]
+            for day_tuple in studied_time_list:
+                print('For the date: {}-{}:'.format(day_tuple[0], day_tuple[1]))
+                keywords = extract_keywords_in_a_day(hotspot_dataframe=cgs_hotspot_3_renamed, month=day_tuple[0],
+                                                     day=day_tuple[1], top_N_keywords_considered=30,
+                                                     save_filename='cgs_' + hotspot_id + '_{}_{}.csv'.format(
+                                                         day_tuple[0], day_tuple[1]))
+                print(keywords)
+        print('-' * 15)
+    print('+' * 20)
 
 
 if __name__ == '__main__':
     keyword_extract_in_given_days()
-
