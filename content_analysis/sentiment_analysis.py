@@ -8,6 +8,7 @@ import paddlehub as hub
 
 import data_paths
 from process_text.text_preprocessing import preprocessing_weibo
+from utils import count_positive_neutral_negative
 
 # load the sentiment analysis module
 senta = hub.Module(name='senta_bilstm')
@@ -34,19 +35,22 @@ def get_sentiment_senta(text_string):
     :param text_string: a Weibo text string
     :return: 2 means positive, 1 means neutral, 0 means negative
     """
-    cleaned_text = preprocessing_weibo(raw_tweet=text_string)
+    if text_string == 'no retweeters':
+        return 1
+    cleaned_text = preprocessing_weibo(raw_tweet=text_string, return_word_list=False, tokenization=True)
     sent_result = senta.sentiment_classify([cleaned_text])[0]
+    print(sent_result)
     positive_prob = sent_result['positive_probs']
     negative_prob = sent_result['negative_probs']
-    if positive_prob > negative_prob and (positive_prob - negative_prob) > 0.3:
+    if positive_prob > negative_prob and (positive_prob - negative_prob) > 0.4:
         return 2
-    elif positive_prob < negative_prob and (negative_prob - positive_prob) > 0.3:
+    elif positive_prob < negative_prob and (negative_prob - positive_prob) > 0.4:
         return 0
     else:
         return 1
 
 
-def baidu_sentiment(baidu_client, weibo_text:str) -> int:
+def baidu_sentiment(baidu_client, weibo_text: str) -> int:
     """
     Conduct the sentiment analysis using Baidu Sentiment Analysis API
     :param baidu_client: the Baidu sentiment analysis client
@@ -96,19 +100,13 @@ def compute_sentiment_across_districts(dataframe, district_colname):
         rename_dict = {'traffic_we': 'traffic_weibo', 'traffic_re': 'traffic_repost', 'retweete_1': 'retweeters_text'}
         renamed_data = dataframe[select_columns].rename(columns=rename_dict)
     district_name_set_list = list(set(renamed_data[district_colname]))
-    sent_district_dict = {key: [0, 0, 0] for key in district_name_set_list} # key: [positive, neutral, negative]
+    sent_district_dict = {key: [0, 0, 0] for key in district_name_set_list}  # key: [positive, neutral, negative]
     for district_name, district_data in renamed_data.groupby(district_colname):
-        sent_result = []
-        for index, row in district_data.iterrows():
-            weibo_sent = row['sent_weibo']
-            sent_result.append(weibo_sent)
-            if row['retweeters_text'] != 'no retweeters':
-                repost_sent = row['sent_repos']
-                sent_result.append(repost_sent)
-        sent_counter = Counter(sent_result)
-        sent_district_dict[district_name][0] = sent_counter[2] # positive
-        sent_district_dict[district_name][1] = sent_counter[1] # neutral
-        sent_district_dict[district_name][2] = sent_counter[0] # negative
+        pos_count, neutral_count, neg_count = count_positive_neutral_negative(dataframe=district_data,
+                                                                              repost_column='retweeters_text')
+        sent_district_dict[district_name][0] = pos_count  # positive
+        sent_district_dict[district_name][1] = neutral_count  # neutral
+        sent_district_dict[district_name][2] = neg_count  # negative
     result_dataframe = pd.DataFrame(columns=['district_name', 'pos_count', 'neg_count', 'total_count', 'sent_index'])
     pos_count_list = []
     neg_count_list = []
@@ -118,9 +116,10 @@ def compute_sentiment_across_districts(dataframe, district_colname):
         neutral_count_list.append(sent_district_dict[district_name][1])
         neg_count_list.append(sent_district_dict[district_name][2])
     sum_count_array = np.array(pos_count_list) + np.array(neutral_count_list) + np.array(neg_count_list)
-    sent_index_array = (np.array(neg_count_list) - np.array(pos_count_list))/sum_count_array
+    sent_index_array = (np.array(pos_count_list) - np.array(neg_count_list)) / sum_count_array
     result_dataframe['district_name'] = district_name_set_list
     result_dataframe['pos_count'] = pos_count_list
+    result_dataframe['neutral_count'] = neutral_count_list
     result_dataframe['neg_count'] = neg_count_list
     result_dataframe['total_count'] = sum_count_array.tolist()
     result_dataframe['sent_index'] = sent_index_array.tolist()
@@ -134,14 +133,14 @@ def main_sent_analysis():
     :return:
     """
     for file in os.listdir(data_paths.shanghai_jun_aug_traffic):
-        print('*'*15)
+        print('*' * 15)
         print('Conducting the sentiment analysis of the file: {}'.format(file))
         dataframe = pd.read_csv(os.path.join(data_paths.shanghai_jun_aug_traffic, file), encoding='utf-8', index_col=0)
         dataframe_copy = dataframe.copy()
-        decision1 = (dataframe_copy['traffic_weibo'].isin([1,2]))
-        decision2 = (dataframe_copy['traffic_repost'].isin([1,2]))
+        decision1 = (dataframe_copy['traffic_weibo'].isin([1, 2]))
+        decision2 = (dataframe_copy['traffic_repost'].isin([1, 2]))
         # select dataframe in which the weibo is traffic relevant or repost is traffic relevant
-        dataframe_selected = dataframe_copy[decision1 | decision2].reset_index(drop = True)
+        dataframe_selected = dataframe_copy[decision1 | decision2].reset_index(drop=True)
         print('{} rows have been selected.'.format(dataframe_selected.shape[0]))
         sentiment_weibo_list = []
         sentiment_reposts_list = []
@@ -150,17 +149,22 @@ def main_sent_analysis():
             sentiment_reposts_list.append(get_sentiment_senta(row['retweeters_text']))
         dataframe_selected['sent_weibo'] = sentiment_weibo_list
         dataframe_selected['sent_repost'] = sentiment_reposts_list
-        dataframe_selected.to_csv(os.path.join(data_paths.shanghai_jun_aug_traffic_sent, file[:-4]+'_sent.csv'),
-                              encoding='utf-8')
+        dataframe_selected.to_csv(os.path.join(data_paths.shanghai_jun_aug_traffic_sent, file[:-4] + '_sent.csv'),
+                                  encoding='utf-8')
         print('Done!')
-        print('*'*10)
+        print('*' * 10)
 
 
 if __name__ == '__main__':
+    # check_string = r'转发微博'
+    # result = get_sentiment_senta(text_string=check_string)
+    # print(result)
 
-    # main_sent_analysis()
+    # main_sent_analysis() # Compute the sentiment for Weibos and reposts
     combined_traffic_data = pd.read_csv(os.path.join(data_paths.weibo_data_path,
-                                                  'combined_traffic_weibo_shanghai.csv'), encoding='utf-8', index_col=0)
-    print(combined_traffic_data.head())
+                                                     'combined_traffic_weibo_shanghai.csv'),
+                                        encoding='utf-8',
+                                        index_col=0)
     sent_result_districts = compute_sentiment_across_districts(dataframe=combined_traffic_data, district_colname='Name')
+    sent_result_districts.to_csv(os.path.join(data_paths.weibo_data_path, 'district_sent.csv'), encoding='utf-8')
     sent_result_districts.to_excel(os.path.join(data_paths.weibo_data_path, 'district_sent.xlsx'), encoding='utf-8')
