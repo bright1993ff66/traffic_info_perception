@@ -5,7 +5,6 @@ from scipy.stats import halfnorm
 import time
 from collections import Counter
 from sklearn.metrics import auc  # auc(false_positive_rates, true_positive_rates)
-import multiprocessing as mp
 
 import geopandas as gpd
 import rasterio
@@ -13,22 +12,6 @@ import shapely
 shapely.speedups.disable()
 
 from data_paths import kde_analysis, tif_save_path, fishnet_path, raster_fishnet
-
-
-# def parallelize(shapefile, use_cpu_count: int):
-#
-#     chunks = np.array_split(shapefile, use_cpu_count)
-#
-#     pool = mp.Pool(processes=use_cpu_count)
-#
-#     chunk_processes = [pool.apply_async(neighbour_distance, args=(chunks, shapefile)) for chunk in
-#                        chunks]
-#
-#     intersection_results = [chunk.get() for chunk in chunk_processes]
-#
-#     intersections_dist = gpd.GeoDataFrame(pd.concat(intersection_results), crs=shapefile.crs)
-#
-#     return intersections_dist
 
 
 def compute_raster_fishnet(fishnet_filename, raster_path_filename):
@@ -93,9 +76,13 @@ def compute_type_one_error(density_vals, std_error_size):
 def compute_false_alarm_miss_detection(whole_area_grid, point_feature, threshold_value, max_density_val):
     """
     Compute the miss detection rate (percentage of points not captured by the hotspot area)
-    :param grid_feature: the grid shapefile
+    :param whole_area_grid: the whole grid shapefile (considered Shanghai fishnet)
     :param point_feature: the point shapefile
-    :return: the percentage of grid cells not having points
+    :param threshold_value: the threshold value used to find the hotspot area
+    :param max_density_val: the maximum density value used to find the hotspot
+    If the threshold value is less than max_density_val, we use threshold value to find hotspot
+    If the threshold value is equal or bigger than max_density_val, no spatial unit is defined as a component of hotspot
+    :return: false alarm rate, miss detection rate, and a list saving [TN, FN, FP, TP]
     """
     assert 'geometry' in whole_area_grid, "The grid shapefile should contain the polygon feature"
     assert 'geometry' in point_feature, "The point shapefile should contain the point feature"
@@ -864,6 +851,21 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
     pai_dataframe.to_csv(os.path.join(kde_analysis, 'kde_compare',
                                       '{}_daily_validate_three_std.csv'.format(traffic_type)),
                          encoding='utf-8')
+
+
+if __name__ == '__main__':
+
+    # # Get the fishnet having raster values
+    # main_extract_raster_for_fishnet()
+
+    # Compare the kde hotspots based on different threshold
+    starting_time = time.time()
+    # build_pai_compare_dataframe_multiple_thresholds(traffic_type='acc', threshold_num=70)
+    # build_pai_compare_dataframe_multiple_thresholds(traffic_type='cgs', threshold_num=70)
+    build_pai_compare_dataframe(traffic_type='acc', considered_bandwidth=2000)
+    build_pai_compare_dataframe(traffic_type='cgs', considered_bandwidth=2000)
+    ending_time = time.time()
+    print('Total time: {}'.format(round((ending_time - starting_time)/3600, 2)))
 
 
 if __name__ == '__main__':
