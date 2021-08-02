@@ -1151,9 +1151,9 @@ def plot_sent_dense(sent_dense_data: pd.DataFrame, traffic_type: str, save_filen
     axis.set_ylabel('Sentiment Index\n(% of Positive - % of Negative)', size=25)
 
     # Plot the rectangles
-    min_y, max_y = axis.get_ylim()
-    rec_priority = Rectangle(xy=(count_50, min_y),
-                                 width=(max(count_log_list) - count_50), height=(sent_50 - min_y),
+    ytick_vals = axis.get_yticks().tolist()
+    rec_priority = Rectangle(xy=(count_50, ytick_vals[0]),
+                                 width=(max(count_log_list) - count_50), height=(sent_50 - ytick_vals[0]),
                                  facecolor='red', alpha=0.15)
     # rec_priority_two_first = Rectangle(xy=(count_50, min_y),
     #                                    width=(count_75 - count_50), height=(sent_50 - min_y),
@@ -1170,6 +1170,9 @@ def plot_sent_dense(sent_dense_data: pd.DataFrame, traffic_type: str, save_filen
     axis.spines['top'].set_visible(False)
 
     # Edit the xticks and yticks
+    ytick_vals_round_string = [str(round(tick_val, 2) * 100) for tick_val in ytick_vals]
+    axis.set_yticks(ytick_vals)
+    axis.set_yticklabels(ytick_vals_round_string)
     axis.xaxis.set_tick_params(labelsize=20)
     axis.yaxis.set_tick_params(labelsize=20)
 
