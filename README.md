@@ -27,13 +27,19 @@ The overview of the traffic hotspot analysis module is given below:
 
 ![Traffic Hotspot Analysis Module](https://github.com/bright1993ff66/traffic_info_perception/blob/main/project_figures/traffic_hotspot_framework.png)
 
-## 3. Prerequisites
+## 3. Main Findings
+
+To be updated...
+
+## 4. Prerequisites
+
+For kernel density computation presented in [compute_kde.py](https://github.com/bright1993ff66/traffic_info_perception/blob/main/gis_analysis_project/compute_kde.py), you need to use the Python version (Python 2.7) installed with ArcMap. For other codes, Python 3.7 or above is needed. 
 
 Main Python packages for this project are given below:
 
 - GIS Analysis: [geopandas](https://geopandas.org/index.html), [rasterio](https://rasterio.readthedocs.io/en/latest/), [ArcMap 10.4.1](https://desktop.arcgis.com/en/arcmap/10.4/get-started/setup/arcgis-desktop-quick-start-guide.htm) or above
 - Traffic Information Detection: [Keras](https://keras.io/)
 - Text Processing: [spacy](https://spacy.io/), [gensim](https://radimrehurek.com/gensim/)
-- Data management: [pandas](https://pandas.pydata.org/)
+- Data Management: [pandas](https://pandas.pydata.org/)
 - Visualizations: [matplotlib](https://matplotlib.org/), [wordcloud](https://amueller.github.io/word_cloud/)
 
