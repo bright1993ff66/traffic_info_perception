@@ -15,23 +15,30 @@ The **research questions** are as follows:
 
 - Where (route/intersection/expressway/etc) people are most discussed in the accident hotspot and the congestion hotspot? Which hotspot areas should be prioritized for the following traffic management?
 
-The **main contributions** of this study are:
-
-- We use a new data source, social media data, to detect and characterize the accident and congestion hotspots from people’s perspectives. 
-- We modify the Kernel Density Estimation (KDE) approach to identify the people-centric traffic hotspots, by incorporating the sentiment information of traffic-relevant microblogs. The detected hotspot is further compared with the traditional KDE method.
-- We further provide insights into the traffic accidents and congestions in Shanghai and offer policy recommendations for future traffic management.
-
 ## 2. Traffic Hotspot Analysis Module Based on Social Media Data
 
 The overview of the traffic hotspot analysis module is given below:
 
 ![Traffic Hotspot Analysis Module](https://github.com/bright1993ff66/traffic_info_perception/blob/main/project_figures/traffic_hotspot_framework.png)
 
+The **main contributions** of this study are:
+
+- We use a new data source, social media data, to detect and characterize the accident and congestion hotspots from people’s perspectives. 
+- We modify the Kernel Density Estimation (KDE) approach to identify the people-centric traffic hotspots, by incorporating the sentiment information of traffic-relevant Chinese microblogs. The detected hotspot is further compared with the traditional KDE method.
+- We further provide insights into the traffic accidents and congestions in Shanghai and offer policy recommendations for future traffic management.
+
 ## 3. Main Findings
 
-To be updated...
+> To be updated...
 
-## 4. Prerequisites
+## 4. Descriptions
+
+- The [content analysis](https://github.com/bright1993ff66/traffic_info_perception/tree/main/content_analysis) folder saves the codes to conduct the microblog content analysis, including sentiment analysis, keyword extraction, visualizations, topic modeling ,etc.
+- The [detect traffic](https://github.com/bright1993ff66/traffic_info_perception/tree/main/detect_traffic) directory saves the utilities for the traffic-relevant information detection with location information
+- The [compute_kde.py](https://github.com/bright1993ff66/traffic_info_perception/blob/main/gis_analysis_project/compute_kde.py) and [compare_kde.py](https://github.com/bright1993ff66/traffic_info_perception/blob/main/gis_analysis_project/compare_kde.py) in the [gis_analysis_project](https://github.com/bright1993ff66/traffic_info_perception/tree/main/gis_analysis_project) directory stores the functions to conduct the [Kernel Density Estimation (KDE)](https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/how-kernel-density-works.htm#:~:text=Kernel%20Density%20calculates%20the%20density,is%20fitted%20over%20each%20point.&text=The%20density%20at%20each%20output,overlay%20the%20raster%20cell%20center.) and compare the different hotspot identification modules.
+- The [text_preprocessing.py](https://github.com/bright1993ff66/traffic_info_perception/blob/main/process_text/text_preprocessing.py) in the [process_text](https://github.com/bright1993ff66/traffic_info_perception/tree/main/process_text) folder saves the functions for text preprocessing.
+
+## 5. Prerequisites
 
 For kernel density computation presented in [compute_kde.py](https://github.com/bright1993ff66/traffic_info_perception/blob/main/gis_analysis_project/compute_kde.py), you need to use the Python version (Python 2.7) installed with ArcMap. For other codes, Python 3.7 or above is needed. 
 
