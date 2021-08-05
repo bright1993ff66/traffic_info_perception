@@ -263,7 +263,7 @@ def compare_kernel_density(inFeature_filename, consider_sent, bandwidth_list, un
 
 
 def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit_size_list,
-                       aggregate_polygon=True):
+                           for_official=False):
     """
     Compute kernel density based on points using ArcMap. For reference:
     https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/kernel-density.htm
@@ -271,11 +271,14 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
     :param consider_sent: consider the sentiment or not
     :param bandwidth_list: a list saving the candidate bandwidths
     :param unit_size_list: a list saving the spatial unit sizes
-    :param aggregate_polygon: aggregate the spatial units or not
+    :param for_official: for official events or not
     :return: None. The computed density values are saved to local directory as .tif files
     """
     assert 'accident' in inFeature_points or 'congestion' in inFeature_points, \
         "The input file should include either accident or congestion"
+
+    if consider_sent & for_official:
+        raise ValueError("We don't consider the sentiment information when conducting KDE for official records")
 
     print('Coping with the point feature: {}'.format(inFeature_points))
     print('Considering the sentiment or not: {}'.format(consider_sent))
@@ -313,111 +316,53 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
             # Save the computed kernel density raster
             # Save the 100 * raster val into 32 bit signed in order to visualize it in arcmap
             if consider_sent:
-                arcpy.CopyRaster_management(in_raster=output_density_100,
-                                            out_rasterdataset=os.path.join(
-                                                raster_table_save_path, '{}_{}_{}_s'.format(traffic_type[0],
-                                                                                          bandwidth,
-                                                                                          unit_size)),
-                                            pixel_type='32_BIT_SIGNED')
-                output_density.save(os.path.join(tif_save_path, '{}_{}_{}_with_sent.tif'.format(
-                    traffic_type, bandwidth, unit_size)))
+                if for_official:
+                    output_density.save(os.path.join(tif_save_path, 'official_{}_{}_{}_with_sent.tif'.format(
+                        traffic_type, bandwidth, unit_size)))
+                else:
+                    arcpy.CopyRaster_management(in_raster=output_density_100,
+                                                out_rasterdataset=os.path.join(
+                                                    raster_table_save_path, '{}_{}_{}_s'.format(traffic_type[0],
+                                                                                                bandwidth,
+                                                                                                unit_size)),
+                                                pixel_type='32_BIT_SIGNED')
+                    output_density.save(os.path.join(tif_save_path, '{}_{}_{}_with_sent.tif'.format(
+                        traffic_type, bandwidth, unit_size)))
             else:
-                arcpy.CopyRaster_management(in_raster=output_density_100,
-                                            out_rasterdataset=os.path.join(
-                                                raster_table_save_path, '{}_{}_{}_ws'.format(traffic_type[0],
-                                                                                            bandwidth,
-                                                                                            unit_size)),
-                                            pixel_type='32_BIT_SIGNED')
-                output_density.save(os.path.join(tif_save_path, '{}_{}_{}_without_sent.tif'.format(
-                    traffic_type, bandwidth, unit_size)))
-
-            # # Generate 100 density value choices between mean + 2*std and mean + 3*std
-            # density_values = arcpy.RasterToNumPyArray(output_density)
-            # density_values_ravel = density_values.ravel()
-            # density_val_mean, density_val_std = np.mean(density_values_ravel), np.std(density_values_ravel)
-            # density_threshold_low = density_val_mean + 2 * density_val_std
-            # density_thresold_up = density_val_mean + 3 * density_val_std
-            # threshold_choices = np.linspace(density_threshold_low, density_thresold_up, 100)
-            # # Save the 100 * Raster to Polygon
-            # env.workspace = raster_table_save_path
-            # if consider_sent:
-            #     np.save(os.path.join(array_value_path, '{}_{}_{}_sent.npy'.format(
-            #         traffic_type, bandwidth, unit_size)), density_values)
-            #     raster_layer = arcpy.Raster('{}_{}_{}_s'.format(traffic_type[0], bandwidth, unit_size))
-            #     temp_polygon_save = os.path.join(polygon_temp_path,
-            #                                      '{}_{}_{}_sent.shp'.format(traffic_type[0],
-            #                                                                 bandwidth,
-            #                                                                 unit_size))
-            # else:
-            #     np.save(os.path.join(array_value_path, '{}_{}_{}_without_sent.npy'.format(
-            #         traffic_type, bandwidth, unit_size)), density_values)
-            #     raster_layer = arcpy.Raster('{}_{}_{}_ws'.format(traffic_type[0], bandwidth, unit_size))
-            #     temp_polygon_save = os.path.join(polygon_temp_path,
-            #                                      '{}_{}_{}_without_sent.shp'.format(traffic_type[0],
-            #                                                                 bandwidth,
-            #                                                                 unit_size))
-            # arcpy.RasterToPolygon_conversion(raster_layer, temp_polygon_save,
-            #                                  "NO_SIMPLIFY")
-            # print('The mean is: {}'.format(output_density.mean))
-            # print('The std is: {}'.format(output_density.standardDeviation))
-            # print('The minimum is: {}'.format(output_density.minimum))
-            # print('The maximum is: {}'.format(output_density.maximum))
-            #
-            # # Load the saved polygon and create the hotspot area based on one threshold value
-            # polygon_file = arcpy.MakeFeatureLayer_management(temp_polygon_save)
-            # print('Start getting the hotspot area with different threshold values...')
-            # for threshold_value in threshold_choices:
-            #     print('The threshold value is set to: {}'.format(threshold_value))
-            #     # try:
-            #     select_layer = arcpy.SelectLayerByAttribute_management(polygon_file,
-            #                                                            "NEW_SELECTION",
-            #                                                            '"GRIDCODE" > {}'.format(
-            #                                                                int(round(threshold_value * 100, 0))))
-            #     if consider_sent:
-            #         save_file = os.path.join(polygon_units_path, '{}_{}_{}_{}_sent.shp'.format(traffic_type[0],
-            #                                                                                   bandwidth,
-            #                                                                                   unit_size, int(round(
-            #                 threshold_value * 100,
-            #                 0))))
-            #     else:
-            #         save_file = os.path.join(polygon_units_path, '{}_{}_{}_{}_without_sent.shp'.format(traffic_type[0],
-            #                                                                                    bandwidth,
-            #                                                                                    unit_size, int(round(
-            #                 threshold_value * 100,
-            #                 0))))
-            #     if aggregate_polygon:
-            #         arcpy.AggregatePolygons_cartography(select_layer, save_file, "{} Meters".format(unit_size))
-            #     else:
-            #         arcpy.CopyFeatures_management(select_layer, save_file)
-            #     # except:
-            #     #     print("Select raster based on threshold value failed.")
-            #     #     print(arcpy.GetMessages())
+                if for_official:
+                    output_density.save(os.path.join(tif_save_path, 'official_{}_{}_{}_without_sent.tif'.format(
+                        traffic_type, bandwidth, unit_size)))
+                else:
+                    arcpy.CopyRaster_management(in_raster=output_density_100,
+                                                out_rasterdataset=os.path.join(
+                                                    raster_table_save_path, '{}_{}_{}_ws'.format(traffic_type[0],
+                                                                                                bandwidth,
+                                                                                                unit_size)),
+                                                pixel_type='32_BIT_SIGNED')
+                    output_density.save(os.path.join(tif_save_path, '{}_{}_{}_without_sent.tif'.format(
+                        traffic_type, bandwidth, unit_size)))
 
 
 if __name__ == '__main__':
-    # compare_kernel_density(inFeature_filename='weibo_accident.shp', consider_sent=True,
-    #                        bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-    #                        standard_deviation_sizes=std_sizes_check, aggregate_polygon=False)
-    # compare_kernel_density(inFeature_filename='weibo_accident.shp', consider_sent=False,
-    #                        bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-    #                        standard_deviation_sizes=std_sizes_check, aggregate_polygon=False)
-    # compare_kernel_density(inFeature_filename='weibo_congestion.shp', consider_sent=True,
-    #                        bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-    #                        standard_deviation_sizes=std_sizes_check, aggregate_polygon=False)
-    # compare_kernel_density(inFeature_filename='weibo_congestion.shp', consider_sent=False,
-    #                        bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-    #                        standard_deviation_sizes=std_sizes_check, aggregate_polygon=False)
     considered_months_list = [6, 7, 8]
     considered_days_list = list(range(1, 32))
+
+    # Compute the KDE for Weibo accident and Weibo congestion
     compare_kernel_for_roc(inFeature_points='weibo_accident.shp', consider_sent=True,
                            bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-                           aggregate_polygon=False)
+                           for_official=False)
     compare_kernel_for_roc(inFeature_points='weibo_accident.shp', consider_sent=False,
                            bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-                           aggregate_polygon=False)
+                           for_official=False)
     compare_kernel_for_roc(inFeature_points='weibo_congestion.shp', consider_sent=True,
                            bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-                           aggregate_polygon=False)
+                           for_official=False)
     compare_kernel_for_roc(inFeature_points='weibo_congestion.shp', consider_sent=False,
                            bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
-                           aggregate_polygon=False)
+                           for_official=False)
+
+    # Compute the kernel density based on actual traffic accident and congestion records
+    compare_kernel_for_roc(inFeature_points='official_accident_shanghai.shp', consider_sent=False,
+                           bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes, for_official=True)
+    compare_kernel_for_roc(inFeature_points='official_congestion_shanghai.shp', consider_sent=False,
+                           bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes, for_official=True)
