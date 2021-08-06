@@ -16,7 +16,7 @@ The **research questions** are as follows:
 
 ## 2. Study Area
 
-We choose Shanghai as our study, which is one of major cities in China. The overview of Shanghai road network is presented as the following:
+We choose Shanghai as our study area, which is one of major cities in China. The overview of Shanghai road network is presented as the following:
 
 ![Shanghai Road Network](https://github.com/bright1993ff66/traffic_info_perception/blob/main/project_figures/Shanghai_road_network.png)
 
