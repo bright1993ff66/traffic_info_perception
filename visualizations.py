@@ -1191,6 +1191,14 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
     :param save_filename: the saved file name
     :return: None. The figure is saved to local directory
     """
+    assert 'acc' in save_filename or 'cgs' in save_filename, "The saved filename should contain traffic type info"
+
+    # Assign the value to traffic type
+    if 'acc' in save_filename:
+        traffic_type = 'acc'
+    else:
+        traffic_type = 'cgs'
+
     # Prepare the dataframe to validation the hotspot identification module in specific days
     daily_compare_dataframe['datetime_obj'] = daily_compare_dataframe.apply(
         lambda row: datetime(2012, row['month'], row['day']), axis=1)
@@ -1245,21 +1253,17 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
                        linestyle='--')
     axes[1][1].set_ylim(0, 1)
 
-
     for i in range(axes.shape[0]):
         for j in range(axes.shape[1]):
-            if daily_compare_dataframe_sorted_select.shape[0] <= 20:
+            if traffic_type is 'acc':
                 axes[i][j].set_xticks(list(range(daily_compare_dataframe_sorted_select.shape[0])))
                 axes[i][j].set_xticklabels(date_list, rotation=45, size=15)
             else:
-                print('Coping with xticks...')
                 xtick_vals = np.array(list(range(daily_compare_dataframe_sorted_select.shape[0])))
                 # indices = np.array(list(range(len(xtick_vals))))
                 new_indices = np.linspace(start=0, stop=len(xtick_vals) - 1, num=10, dtype=int)
                 new_xtick_vals = xtick_vals[new_indices]
                 new_xtick_labels = [date_list[i] for i in new_indices]
-                print(new_xtick_vals)
-                print(new_xtick_labels)
                 axes[i][j].set_xticks(new_xtick_vals)
                 axes[i][j].set_xticklabels(new_xtick_labels, rotation=45, size=15)
             axes[i][j].yaxis.set_tick_params(labelsize=18)
@@ -1270,14 +1274,24 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
     figure.savefig(os.path.join(save_path, save_filename), bbox_inches='tight')
 
 
-def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: str, save_filename: str):
+def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: str, save_filename: str,
+                              plot_pai_ratio: bool = True):
     """
     Conduct the hotspot validation on a daily basis using PAI values (PAI weibo, PAI actual, PAI ratio)
     :param daily_compare_dataframe: a pandas dataframe saving the metrics for hotspot validation daily
     :param save_path: the path used to save the created dataframe
     :param save_filename: the saved file name
+    :param plot_pai_ratio: boolean. If True, plot the PAI ratio; else, plot hotspot precision
     :return: None. The figure is saved to local directory
     """
+    assert 'acc' in save_filename or 'cgs' in save_filename, "The saved filename should contain traffic type info"
+
+    # Assign the value to traffic type
+    if 'acc' in save_filename:
+        traffic_type = 'acc'
+    else:
+        traffic_type = 'cgs'
+
     # Prepare the dataframe to validation the hotspot identification module in specific days
     daily_compare_dataframe['datetime_obj'] = daily_compare_dataframe.apply(
         lambda row: datetime(2012, row['month'], row['day']), axis=1)
@@ -1301,6 +1315,7 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
     # axes[1][2].text(x_text, y_text, text_string)
     axes[0].axhline(np.mean(daily_compare_dataframe_sorted_select['PAI_actual']), alpha=0.5, color='black',
                        linestyle='--')
+    axes[0].set_ylabel('PAI(Actual)', size=20)
 
     axes[1].plot(daily_compare_dataframe_sorted_select['PAI_weibo'], label='PAI (Weibo)', color='green')
     # x_text = 3
@@ -1309,25 +1324,36 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
     # axes[0][2].text(x_text, y_text, text_string)
     axes[1].axhline(np.mean(daily_compare_dataframe_sorted_select['PAI_weibo']), alpha=0.5, color='black',
                     linestyle='--')
+    axes[1].set_ylabel('PAI(Weibo)', size=20)
 
-    axes[2].plot(daily_compare_dataframe_sorted_select['PAI_ratio'], color='red',
-                    linestyle='--', label=r'PAI Ratio')
-    axes[2].axhline(np.mean(daily_compare_dataframe_sorted_select['PAI_ratio']), alpha=0.5, color='black',
-                       linestyle='--')
+    if plot_pai_ratio:
+        axes[2].plot(daily_compare_dataframe_sorted_select['PAI_ratio'], color='red',
+                        linestyle='--', label=r'PAI Ratio')
+        axes[2].axhline(np.mean(daily_compare_dataframe_sorted_select['PAI_ratio']), alpha=0.5, color='black',
+                           linestyle='--')
+        axes[2].set_ylabel('PAI Ratio', size=20)
+    else:
+        axes[2].set_ylabel('Hotspot Precision %', size=20)
+        axes[2].plot(daily_compare_dataframe_sorted_select['hotspot_precision'], color='red',
+                     linestyle='--', label=r'Hotspot Precision')
+        axes[2].axhline(np.mean(daily_compare_dataframe_sorted_select['hotspot_precision']), alpha=0.5, color='black',
+                        linestyle='--')
+        ytick_vals = axes[2].get_yticks().tolist()
+        ytick_vals_for_plot = [val for val in ytick_vals if val >=0]
+        ytick_vals_round_string = [str(round(tick_val * 100, 0)) for tick_val in ytick_vals_for_plot]
+        print(ytick_vals_round_string)
+        axes[2].set_yticks(ytick_vals_for_plot)
+        axes[2].set_yticklabels(ytick_vals_round_string)
 
     for i in range(axes.shape[0]):
-        if daily_compare_dataframe_sorted_select.shape[0] <= 20:
+        if traffic_type is 'acc':
             axes[i].set_xticks(list(range(daily_compare_dataframe_sorted_select.shape[0])))
             axes[i].set_xticklabels(date_list, rotation=45, size=15)
         else:
-            print('Coping with xticks...')
             xtick_vals = np.array(list(range(daily_compare_dataframe_sorted_select.shape[0])))
-            # indices = np.array(list(range(len(xtick_vals))))
             new_indices = np.linspace(start=0, stop=len(xtick_vals) - 1, num=10, dtype=int)
             new_xtick_vals = xtick_vals[new_indices]
             new_xtick_labels = [date_list[i] for i in new_indices]
-            print(new_xtick_vals)
-            print(new_xtick_labels)
             axes[i].set_xticks(new_xtick_vals)
             axes[i].set_xticklabels(new_xtick_labels, rotation=45, size=15)
         axes[i].yaxis.set_tick_params(labelsize=18)
@@ -1340,6 +1366,7 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
 
 if __name__ == '__main__':
 
+    # Draw the kde density values and thresholds for hotspot identification
     print('Draw the kensity values and thresholds for hotspot identification...')
     fishnet_shapefiles = [file for file in os.listdir(data_paths.raster_fishnet) if file.endswith('.shp')]
     print(fishnet_shapefiles)
@@ -1396,6 +1423,8 @@ if __name__ == '__main__':
     plot_validation_daily_alarm_detection(daily_compare_dataframe=cgs_validate_daily,
                                           save_path=data_paths.figures_path, save_filename='cgs_daily_validate.png')
     plot_validation_daily_pai(daily_compare_dataframe=acc_validate_daily,
-                              save_path=data_paths.figures_path, save_filename='acc_daily_pai.png')
+                              save_path=data_paths.figures_path, save_filename='acc_daily_pai.png',
+                              plot_pai_ratio=False)
     plot_validation_daily_pai(daily_compare_dataframe=cgs_validate_daily,
-                              save_path=data_paths.figures_path, save_filename='cgs_daily_pai.png')
+                              save_path=data_paths.figures_path, save_filename='cgs_daily_pai.png',
+                              plot_pai_ratio=False)
