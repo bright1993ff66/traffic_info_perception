@@ -79,12 +79,12 @@ def compare_hotspot_roc(hotspot_compare_dataframe: pd.DataFrame, considered_traf
 
     # Generate colors for each hotspot identification setting
     auc_dict_actual, auc_dict_weibo = {}, {}
-    number_of_hotspot_settings = len(set(hotspot_compare_dataframe['setting']))
+    # number_of_hotspot_settings = len(set(hotspot_compare_dataframe['setting']))
     hotspot_settings = list(set(hotspot_compare_dataframe['setting']))
     color_codes = ['#FFAF37', '#6F55FF', '#44FFA2', '#C9FF40', '#FF50CD', '#FF4D44']
     color_dict = {setting: color for setting, color in zip(hotspot_settings, color_codes)}
 
-    # Plot the roc curve for each hotspot setting
+    # Plot the roc curve for each hotspot setting - based on actual traffic records
     for setting, hotspot_dataframe in hotspot_compare_dataframe.groupby('setting'):
         tpr_rates = list(hotspot_dataframe['TPR_actual'])
         fpr_rates = list(hotspot_dataframe['FPR_actual'])
@@ -98,6 +98,7 @@ def compare_hotspot_roc(hotspot_compare_dataframe: pd.DataFrame, considered_traf
         plot_roc_one_setting(true_positive_rates=tpr_rates, false_negative_rates=fpr_rates, given_ax=axis_actual,
                              label_setting=hotspot_label_setting, select_color=random_color)
 
+    # Plot the roc curve for each hotspot setting - based on traffic-relevant Weibos
     for setting, hotspot_dataframe in hotspot_compare_dataframe.groupby('setting'):
         tpr_rates = list(hotspot_dataframe['TPR_weibo'])
         fpr_rates = list(hotspot_dataframe['FPR_weibo'])
@@ -679,6 +680,7 @@ def hotspot_actual_day_plot(hotspot_dataframe: pd.DataFrame, actual_dataframe: p
     """
     Plot the number of accident or congestion Weibos posted in accident or congestion hotspots in each day
     :param hotspot_dataframe: a pandas dataframe saving the Weibo data
+    :param actual_dataframe: a pandas dataframe saving the actual traffic records
     :param title: the title of the plot
     :param set_percentile: the percentile used to find the abnormal days with big number of traffic Weibos
     :param color_pos: the color code for the positive sentiment bar
@@ -781,7 +783,9 @@ def draw_kde_densities(density_values, consider_sentiment, threshold_value, save
     :param density_values: the values saving the density of spatial units
     :param consider_sentiment: consider sentiment or not in the kernel density computation or not
     :param threshold_value: the threshold value to find the hotspot areas
+    :param save_path: the path used to save the created figure
     :param save_filename: the name of the saved figure
+    :param spatial_unit_size: the considered spatial unit size
     :return: None. The histogram plot is saved to local directory
     """
     assert 'acc' in save_filename or 'cgs' in save_filename, 'The saved figure name should contain traffic type: ' \
@@ -919,6 +923,7 @@ def generate_wordcloud_density_classes_days(density_day_dict: dict, density_data
     Generate wordcloud based on the time dictionary
     :param density_day_dict: a time dictionary saving the dates with big number of traffic accidents or congestions
     :param density_dataframe_dict: a dataframe dictionary saving the Weibo dataframes for given density class
+    :param traffic_type: considered traffic event type. 'acc' for accident and 'cgs' for congestion
     :return: None. The wordcloud figures are saved to the local directory
     """
     assert traffic_type in ['acc', 'cgs'], 'The traffic info type should be given correctly'
@@ -1195,9 +1200,9 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
 
     # Assign the value to traffic type
     if 'acc' in save_filename:
-        traffic_type = 'acc'
+        traffic_event_type = 'acc'
     else:
-        traffic_type = 'cgs'
+        traffic_event_type = 'cgs'
 
     # Prepare the dataframe to validation the hotspot identification module in specific days
     daily_compare_dataframe['datetime_obj'] = daily_compare_dataframe.apply(
@@ -1222,6 +1227,7 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
     # axes[0][0].text(x_text, y_text, text_string)
     axes[0][0].axhline(np.mean(daily_compare_dataframe_sorted_select['false_alarm_weibo']), alpha=0.5, color='black',
                        linestyle='--')
+    axes[0][0].set_ylabel('False Alarm (Weibo) %', size=20)
 
     axes[1][0].plot(daily_compare_dataframe_sorted_select['false_alarm_actual'], label='False Alarm (Actual)',
                     color='blue')
@@ -1231,6 +1237,7 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
     # axes[1][0].text(x_text, y_text, text_string)
     axes[1][0].axhline(np.mean(daily_compare_dataframe_sorted_select['false_alarm_actual']), alpha=0.5, color='black',
                        linestyle='--')
+    axes[1][0].set_ylabel('False Alarm (Actual) %', size=20)
 
     axes[0][1].plot(daily_compare_dataframe_sorted_select['miss_detection_weibo'], label='Miss Detection (Weibo)',
                     color='red')
@@ -1241,6 +1248,7 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
     axes[0][1].axhline(np.mean(daily_compare_dataframe_sorted_select['miss_detection_weibo']), alpha=0.5, color='black',
                        linestyle='--')
     axes[0][1].set_ylim(0, 1)
+    axes[0][1].set_ylabel('Miss Detection (Weibo) %', size=20)
 
     axes[1][1].plot(daily_compare_dataframe_sorted_select['miss_detection_actual'], label='Miss Detection (Actual)',
                     color='red')
@@ -1252,10 +1260,12 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
                        color='black',
                        linestyle='--')
     axes[1][1].set_ylim(0, 1)
+    axes[1][1].set_ylabel('Miss Detection (Actual) %', size=20)
 
+    # Annotate the xticks and yticks of each axis
     for i in range(axes.shape[0]):
         for j in range(axes.shape[1]):
-            if traffic_type is 'acc':
+            if traffic_event_type is 'acc':
                 axes[i][j].set_xticks(list(range(daily_compare_dataframe_sorted_select.shape[0])))
                 axes[i][j].set_xticklabels(date_list, rotation=45, size=15)
             else:
@@ -1270,6 +1280,12 @@ def plot_validation_daily_alarm_detection(daily_compare_dataframe: pd.DataFrame,
             axes[i][j].legend(fontsize=25)
             axes[i][j].spines['right'].set_visible(False)
             axes[i][j].spines['top'].set_visible(False)
+            # Plot the yticks
+            ytick_vals = axes[i][j].get_yticks().tolist()
+            ytick_vals_for_plot = [val for val in ytick_vals if val >= 0]
+            ytick_vals_round_string = [str(round(tick_val * 100, 4)) for tick_val in ytick_vals_for_plot]
+            axes[i][j].set_yticks(ytick_vals_for_plot)
+            axes[i][j].set_yticklabels(ytick_vals_round_string)
 
     figure.savefig(os.path.join(save_path, save_filename), bbox_inches='tight')
 
@@ -1339,7 +1355,7 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
         axes[2].axhline(np.mean(daily_compare_dataframe_sorted_select['hotspot_precision']), alpha=0.5, color='black',
                         linestyle='--')
         ytick_vals = axes[2].get_yticks().tolist()
-        ytick_vals_for_plot = [val for val in ytick_vals if val >=0]
+        ytick_vals_for_plot = [val for val in ytick_vals if val >= 0]
         ytick_vals_round_string = [str(round(tick_val * 100, 0)) for tick_val in ytick_vals_for_plot]
         print(ytick_vals_round_string)
         axes[2].set_yticks(ytick_vals_for_plot)
@@ -1351,6 +1367,7 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
             axes[i].set_xticklabels(date_list, rotation=45, size=15)
         else:
             xtick_vals = np.array(list(range(daily_compare_dataframe_sorted_select.shape[0])))
+            # indices = np.array(list(range(len(xtick_vals))))
             new_indices = np.linspace(start=0, stop=len(xtick_vals) - 1, num=10, dtype=int)
             new_xtick_vals = xtick_vals[new_indices]
             new_xtick_labels = [date_list[i] for i in new_indices]
@@ -1367,7 +1384,7 @@ def plot_validation_daily_pai(daily_compare_dataframe: pd.DataFrame, save_path: 
 if __name__ == '__main__':
 
     # Draw the kde density values and thresholds for hotspot identification
-    print('Draw the kensity values and thresholds for hotspot identification...')
+    print('Draw the kernel density values and thresholds for hotspot identification...')
     fishnet_shapefiles = [file for file in os.listdir(data_paths.raster_fishnet) if file.endswith('.shp')]
     print(fishnet_shapefiles)
     for fishnet_file in fishnet_shapefiles:
