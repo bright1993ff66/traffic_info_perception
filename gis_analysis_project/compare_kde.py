@@ -1,40 +1,79 @@
+#!D:\Projects\Traffic_info_perception\Scripts\python.exe
+# -*- coding: utf-8 -*-
+# basics
 import os
 import pandas as pd
 import numpy as np
-from scipy.stats import halfnorm
 import time
 from collections import Counter
 from sklearn.metrics import auc  # auc(false_positive_rates, true_positive_rates)
 
+# for spatial analysis
 import geopandas as gpd
 import rasterio
 import shapely
-shapely.speedups.disable()
 
+# load some paths
 from data_paths import kde_analysis, tif_save_path, fishnet_path, raster_fishnet
 
+shapely.speedups.disable()
 
-def find_related_official_fishnet(weibo_shapefile, fishnet_path=raster_fishnet):
+
+def find_related_official_fishnet(weibo_shapefile_name, path_to_fishnet=raster_fishnet):
     """
     Find the corresponding official fishnet files with KDE values to compute hotspot precision
-    :param weibo_shapefile: the shapefile for Weibo fishnet
-    :param fishnet_path: the path saving the fishnet
+    :param weibo_shapefile_name: the shapefile for Weibo fishnet
+    :param path_to_fishnet: the path saving the fishnet
     :return: the name of the corresponding official fishnet file
     """
-    if 'acc' in weibo_shapefile:
+    if 'acc' in weibo_shapefile_name:
         traffic_type = 'acc'
     else:
         traffic_type = 'cgs'
 
-    unit_size = weibo_shapefile[:-4].split('_')[2]
-    considered_bandwidth = weibo_shapefile[:-4].split('_')[1]
+    # Get the considered unit size and bandwidth
+    unit_size = weibo_shapefile_name[:-4].split('_')[2]
+    considered_bandwidth = weibo_shapefile_name[:-4].split('_')[1]
 
-    select_files = [file for file in os.listdir(fishnet_path) if file.startswith('official_' + traffic_type) and
+    # Select the files containing the density values based on actual traffic records
+    select_files = [file for file in os.listdir(path_to_fishnet) if file.startswith('official_' + traffic_type) and
                     considered_bandwidth in file and file[:-4].split('_')[3] == unit_size and file.endswith('.shp')]
 
     assert len(select_files) == 1, "The corresponding official fishnet file is not selected correctly."
 
     return select_files[0]
+
+
+def find_related_official_fishnet_month_day(weibo_shapefile_name, fishnet_directory=raster_fishnet):
+    """
+    Find the corresponding official fishnet files with KDE values to compute hotspot precision
+    :param weibo_shapefile_name: the shapefile for Weibo fishnet
+    :param fishnet_directory: the path saving the fishnet
+    :return: the name of the corresponding official fishnet file
+    """
+    if 'acc' in weibo_shapefile_name:
+        traffic_type = 'acc'
+    else:
+        traffic_type = 'cgs'
+
+    # Get the spatial unit size and the bandwidth
+    unit_size = weibo_shapefile_name[:-4].split('_')[2]
+    considered_bandwidth = weibo_shapefile_name[:-4].split('_')[1]
+
+    # Get the time information
+    select_month = weibo_shapefile_name[:-4].split('_')[3]
+    select_day = weibo_shapefile_name[:-4].split('_')[4]
+
+    # Get the corresponding shapefiles saving the density value based on actual traffic records
+    select_files = [file for file in os.listdir(fishnet_directory) if file.startswith('official_' + traffic_type) and
+                    considered_bandwidth in file and file[:-4].split('_')[3] == unit_size and file.endswith('.shp') and
+                    file[:-4].split('_')[4] == str(select_month) and file[:-4].split('_')[5] == str(select_day)]
+
+    if not select_files:  # If not fishnet is generated on that day
+        return None
+    else:
+        assert len(select_files) == 1, "The corresponding official fishnet file is not selected correctly."
+        return select_files[0]
 
 
 def compute_raster_fishnet(fishnet_filename: str, raster_path_filename: str):
@@ -58,10 +97,12 @@ def compute_raster_fishnet(fishnet_filename: str, raster_path_filename: str):
     fishnet_shape['centroid'] = fishnet_shape.centroid
 
     # Get the coordinates
-    coords = [(point.x, point.y) for point in list(fishnet_shape['centroid'])]
+    coordinates = [(point.x, point.y) for point in list(fishnet_shape['centroid'])]
 
     # Compute the raster values
-    raster_vals = np.array([x for x in raster_vals.sample(coords, masked=True)])
+    # The "masked = True" here means that the rasterio package would assign a negative value to the locations
+    # which have no raster value in the studied tif file
+    raster_vals = np.array([x for x in raster_vals.sample(coordinates, masked=True)])
     raster_vals[raster_vals < 0] = 0
 
     # Get the final fishnet file with raster values
@@ -73,7 +114,7 @@ def compute_raster_fishnet(fishnet_filename: str, raster_path_filename: str):
 def spatial_join(point_gdf, shape_area):
     """
     Find the tweets posted in one city's open space
-    :param tweet_gdf: the geopandas dataframe saving the tweets
+    :param point_gdf: the geopandas dataframe saving the tweets
     :param shape_area: the shapefile of a studied area, such as city, open space, etc
     :return: tweets posted in open space
     """
@@ -82,33 +123,19 @@ def spatial_join(point_gdf, shape_area):
     return joined_data
 
 
-def compute_type_one_error(density_vals, std_error_size):
-    """
-    (To be updated...)
-    Compute the type I error based on density values
-    :param density_vals:
-    :param std_error_size:
-    :return: return Type I error
-    """
-    mean_val = np.mean(density_vals)
-    std_val = np.std(density_vals)
-    threshold_value = mean_val + std_error_size * std_val
-    return 1 - halfnorm(loc=mean_val, scale=std_val).cdf(threshold_value)
-
-
 def compute_hotspot_precision(weibo_fishnet, actual_fishnet):
     """
     Compute the hotspot identification precision
     For reference: https://www.mdpi.com/2220-9964/8/8/344
-    :param weibo_fishnet: the fishnet to identify Weibo hotspot
-    :param actual_fishnet: the fishnet to identify actual hotspot
+    :param weibo_fishnet: the fishnet to identify hotspot based on traffic-relevant Weibos
+    :param actual_fishnet: the fishnet to identify hotspot based on actual traffic records
     :return: the hotspot precision value
     """
     # Make sure the fishnet files save the raster values and have same size
     assert 'raster_val' in weibo_fishnet, "The weibo hotspot fishnet should save raster values"
     assert 'raster_val' in actual_fishnet, "The actual hotspot fishnet should save raster values"
     assert weibo_fishnet.shape[0] == actual_fishnet.shape[0], \
-        "The shapefiles should have the same size. But one is {} and another is".format(
+        "The shapefiles should have the same size. But one is {} and another is {}".format(
             weibo_fishnet.shape[0], actual_fishnet.shape[0])
     weibo_fishnet_renamed = weibo_fishnet.rename(columns={'raster_val': "raster_val_weibo"})
     actual_fishnet_renamed = actual_fishnet.rename(columns={'raster_val': "raster_val_actual"})
@@ -130,12 +157,12 @@ def compute_hotspot_precision(weibo_fishnet, actual_fishnet):
                 combined_geo_data['raster_val_actual'] >= actual_density_threshold)]
     intersect_area = get_area(combined_geo_data_select)
 
-    return intersect_area/weibo_hotspot_area
+    return intersect_area / weibo_hotspot_area
 
 
 def compute_false_alarm_miss_detection(whole_area_grid, point_feature, threshold_value, max_density_val):
     """
-    Compute the miss detection rate (percentage of points not captured by the hotspot area)
+    Compute the false alarm rate, miss detection rate, TN, FN, FP, and TP
     :param whole_area_grid: the whole grid shapefile (considered Shanghai fishnet)
     :param point_feature: the point shapefile
     :param threshold_value: the threshold value used to find the hotspot area
@@ -163,13 +190,13 @@ def compute_false_alarm_miss_detection(whole_area_grid, point_feature, threshold
         # Get the **whole area grid units** having points
         hotspot_counter = Counter(hotspot_regions.apply(lambda x: points.within(x).any()))
         not_hotspot_counter = Counter(not_hotspot_regions.apply(lambda x: points.within(x).any()))
-
         print(hotspot_counter)
         print(whole_area_counter)
-        miss_detection_rate = 1 - hotspot_counter[True]/whole_area_counter[True]
-        false_alarm_rate = hotspot_counter[False]/whole_area_counter[False]
+        # Compute the false alarm rate and miss detection rate
+        miss_detection_rate = 1 - hotspot_counter[True] / whole_area_counter[True]
+        false_alarm_rate = hotspot_counter[False] / whole_area_counter[False]
 
-        # Compute for TN
+        # Compute for TN, FN, FP, TP
         TN, FN = not_hotspot_counter[False], not_hotspot_counter[True]
         FP, TP = hotspot_counter[False], hotspot_counter[True]
         for_roc_list = [TN, FN, FP, TP]
@@ -182,25 +209,13 @@ def compute_false_alarm_miss_detection(whole_area_grid, point_feature, threshold
     return false_alarm_rate, miss_detection_rate, for_roc_list
 
 
-def compute_rates_for_each_day(hotspot_grid_shape, actual_points, weibo_points):
-    """
-    TO BE UPDATED...
-    :param hotspot_grid_shape:
-    :param actual_points:
-    :return:
-    """
-    PAI_actual = compute_pai_and_count(points=actual_points, hotspot_shape=hotspot_grid_shape)
-    PAI_weibo = compute_pai_and_count(points=weibo_points, hotspot_shape=hotspot_grid_shape)
-    return PAI_actual/PAI_weibo
-
-
 def get_area(shape: gpd.GeoDataFrame):
     """
     Get the total area of a shape (in square kilometers)
     :param shape: the shapefile of an area
     :return: the total area of the shapefile
     """
-    return round(sum(shape.area)/10**6, 4)
+    return round(sum(shape.area) / 10 ** 6, 4)
 
 
 def main_extract_raster_for_fishnet(for_official: bool = False):
@@ -227,7 +242,7 @@ def main_extract_raster_for_fishnet(for_official: bool = False):
         fishnet_tif_dict[file] = select_tif_files
     print(fishnet_tif_dict)
 
-    # Get the raster value for each fishnet polygon
+    # Get the raster value for fishnet polygon based on each raster file
     for fishnet_file in fishnet_tif_dict:
         raster_file_list = fishnet_tif_dict[fishnet_file]
         for raster_file in raster_file_list:
@@ -240,13 +255,14 @@ def main_extract_raster_for_fishnet(for_official: bool = False):
 
 
 def main_extract_raster_for_fishnet_each_day(save_path, consider_bandwidth, consider_unit_size,
-                                             consider_sent=False):
+                                             consider_sent=False, for_official=False):
     """
     Main function to compute raster for fishnet polygons
     :param: save_path: the pate used to save the created fishnet file
     :param: consider_bandwidth: the considered bandwidth length, in other words, search radius (in meter)
     :param consider_unit_size: the considered spatial unit size (in meter)
     :param consider_sent: whether consider the sentiment information or not
+    :param for_official: cope with the official traffic events or not
     :return: None. The created fishnet is saved to the local directory
     """
     # Create the fishnet file tif list dict
@@ -262,12 +278,19 @@ def main_extract_raster_for_fishnet_each_day(save_path, consider_bandwidth, cons
             check_bandwidth = tif_setting[:4]
             check_unit_size = tif_setting[-3:]
             if (str(consider_bandwidth) == check_bandwidth) and (str(consider_unit_size) == check_unit_size):
-                if consider_sent:
+                if consider_sent and (not for_official):  # Weibos & consider sentiment
                     select_tif_files_path = os.path.join(tif_save_path, tif_setting, 'with_sent')
-                else:
+                    select_tif_files_one_setting = [file for file in os.listdir(select_tif_files_path) if
+                                                    (file.endswith('.tif') and (file.split('_')[2] == grid_cell_size))]
+                elif (not consider_sent) and for_official:  # For official records
+                    select_tif_files_path = os.path.join(tif_save_path, tif_setting, 'for_official')
+                    select_tif_files_one_setting = [file for file in os.listdir(select_tif_files_path) if
+                                                    (file.endswith('.tif') and (file.split('_')[3] == grid_cell_size))]
+                else:  # Weibos & not consider sentiment
                     select_tif_files_path = os.path.join(tif_save_path, tif_setting, 'without_sent')
-                select_tif_files_one_setting = [file for file in os.listdir(select_tif_files_path) if
-                        (file.endswith('.tif') and (file.split('_')[2] == grid_cell_size))]
+                    select_tif_files_one_setting = [file for file in os.listdir(select_tif_files_path) if
+                                                    (file.endswith('.tif') and (file.split('_')[2] == grid_cell_size))]
+
                 select_tif_files += select_tif_files_one_setting
         fishnet_tif_dict[file] = select_tif_files
     print(fishnet_tif_dict)
@@ -277,35 +300,39 @@ def main_extract_raster_for_fishnet_each_day(save_path, consider_bandwidth, cons
     for fishnet_file in fishnet_tif_dict:
         raster_file_list = fishnet_tif_dict[fishnet_file]
         for raster_file in raster_file_list:
-           print('*' * 20)
-           print('Coping with the fishnet: {}; raster file: {}'.format(fishnet_file, raster_file))
-           raster_setting=raster_file[4:12]
-           if 'with_sent' in raster_file:
-               raster_file_path = os.path.join(tif_save_path, raster_setting, 'with_sent', raster_file)
-           else:
-               raster_file_path = os.path.join(tif_save_path, raster_setting, 'without_sent', raster_file)
-           result_fishnet = compute_raster_fishnet(fishnet_filename=fishnet_file,
-                                                   raster_path_filename=raster_file_path)
-           if not os.path.exists(os.path.join(save_path, raster_file[:12])):
-               os.mkdir(os.path.join(save_path, raster_file[:12]))
+            print('*' * 20)
+            print('Coping with the fishnet: {}; raster file: {}'.format(fishnet_file, raster_file))
 
-           result_fishnet.to_file(os.path.join(save_path, raster_file[:12], raster_file[:-4] + '_fishnet.shp'),
-                                  encoding='utf-8')
-           print('Process Done!')
-           print('*' * 20)
+            if 'with_sent' in raster_file:
+                raster_setting = '_'.join(raster_file.split('_')[1:3])
+                raster_file_path = os.path.join(tif_save_path, raster_setting, 'with_sent', raster_file)
+            elif 'official' in raster_file:
+                raster_setting = '_'.join(raster_file.split('_')[2:4])
+                raster_file_path = os.path.join(tif_save_path, raster_setting, 'for_official', raster_file)
+            else:
+                raster_setting = '_'.join(raster_file.split('_')[1:3])
+                raster_file_path = os.path.join(tif_save_path, raster_setting, 'without_sent', raster_file)
+            result_fishnet = compute_raster_fishnet(fishnet_filename=fishnet_file,
+                                                    raster_path_filename=raster_file_path)
+            if not os.path.exists(os.path.join(save_path, raster_file[:12])):
+                os.mkdir(os.path.join(save_path, raster_file[:12]))
+            result_fishnet.to_file(os.path.join(save_path, raster_file[:12], raster_file[:-4] + '_fishnet.shp'),
+                                   encoding='utf-8')
+            print('Process Done!')
+            print('*' * 20)
 
 
 def compute_pai_and_count(points, hotspot_shape, shanghai_total_area=7015.05):
     """
     Compute the PAI index based on points and hotspot area shapefile
-    :param points:
-    :param hotspot_shape:
-    :param shanghai_total_area:
+    :param points: the point feature
+    :param hotspot_shape: the shapefile for the hotspot area
+    :param shanghai_total_area: the total area of Shanghai, in square kilometers
     :return: PAI value based on points and hotspot area; the number of points in the hotspot
     """
     in_hotspot = spatial_join(point_gdf=points, shape_area=hotspot_shape)
     hotspot_area = get_area(hotspot_shape)
-    return (in_hotspot.shape[0]/points.shape[0])/(hotspot_area/shanghai_total_area), in_hotspot.shape[0]
+    return (in_hotspot.shape[0] / points.shape[0]) / (hotspot_area / shanghai_total_area), in_hotspot.shape[0]
 
 
 def build_pai_compare_dataframe(traffic_type: str, considered_bandwidth: int):
@@ -636,23 +663,23 @@ def build_pai_compare_dataframe_multiple_thresholds(traffic_type: str, threshold
         # Compute TPR and FPR for Weibos and actual records
         try:
             pai_dataframe['TPR_weibo'] = pai_dataframe['TP_weibo'] / (
-                        pai_dataframe['TP_weibo'] + pai_dataframe['FN_weibo'])
+                    pai_dataframe['TP_weibo'] + pai_dataframe['FN_weibo'])
             pai_dataframe['FPR_weibo'] = pai_dataframe['FP_weibo'] / (
-                        pai_dataframe['FP_weibo'] + pai_dataframe['TN_weibo'])
+                    pai_dataframe['FP_weibo'] + pai_dataframe['TN_weibo'])
             pai_dataframe['TPR_actual'] = pai_dataframe['TP_actual'] / (
-                        pai_dataframe['TP_actual'] + pai_dataframe['FN_actual'])
+                    pai_dataframe['TP_actual'] + pai_dataframe['FN_actual'])
             pai_dataframe['FPR_actual'] = pai_dataframe['FP_actual'] / (
-                        pai_dataframe['FP_actual'] + pai_dataframe['TN_actual'])
+                    pai_dataframe['FP_actual'] + pai_dataframe['TN_actual'])
             pai_dataframe.to_csv(os.path.join(kde_analysis, 'kde_compare',
                                               '{}_kde_compare_{}.csv'.format(traffic_type,
-                                                                                  shapefile_counter)),
+                                                                             shapefile_counter)),
                                  encoding='utf-8')
             shapefile_counter += 1
         except:
             print('Some error occurs! Save the data first...')
             pai_dataframe.to_csv(os.path.join(kde_analysis, 'kde_compare',
                                               '{}_kde_compare_{}.csv'.format(traffic_type,
-                                                                                  shapefile_counter)),
+                                                                             shapefile_counter)),
                                  encoding='utf-8')
             shapefile_counter += 1
         print('Done!')
@@ -758,14 +785,14 @@ def build_pai_compare_dataframe_multiple_thresholds(traffic_type: str, threshold
                     pai_dataframe['FP_actual'] + pai_dataframe['TN_actual'])
             pai_dataframe.to_csv(os.path.join(kde_analysis, 'kde_compare',
                                               '{}_kde_compare_{}.csv'.format(traffic_type,
-                                                                                  shapefile_counter)),
+                                                                             shapefile_counter)),
                                  encoding='utf-8')
             shapefile_counter += 1
         except:
             print('Some error occurs! Save the data first...')
             pai_dataframe.to_csv(os.path.join(kde_analysis, 'kde_compare',
                                               '{}_kde_compare_{}.csv'.format(traffic_type,
-                                                                                  shapefile_counter)),
+                                                                             shapefile_counter)),
                                  encoding='utf-8')
             shapefile_counter += 1
         print('Done!')
@@ -779,6 +806,7 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
     :param consider_sent: whether consider the sentiment information or not
     :return: None. The daily validation dataframe is saved to local
     """
+
     assert traffic_type in ['acc', 'cgs'], "The traffic type should be either acc or cgs"
 
     # Specify the paths to load the data
@@ -789,33 +817,39 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
         weibo_point = gpd.read_file(os.path.join(shapefile_path, 'weibo_accident.shp'), encoding='utf-8')
         official_point = gpd.read_file(os.path.join(shapefile_path, 'official_accident_shanghai.shp'), encoding='utf-8')
         considered_fishnet_path = os.path.join(kde_analysis, 'raster_polygons', 'acc_2000_260')
+        considered_official_fishnet_path = os.path.join(kde_analysis, 'raster_polygons', 'official_acc')
     else:
         weibo_point = gpd.read_file(os.path.join(shapefile_path, 'weibo_congestion.shp'), encoding='utf-8')
         official_point = gpd.read_file(os.path.join(shapefile_path, 'official_congestion_shanghai.shp'),
                                        encoding='utf-8')
         considered_fishnet_path = os.path.join(kde_analysis, 'raster_polygons', 'cgs_2000_260')
-    if consider_sent:
+        considered_official_fishnet_path = os.path.join(kde_analysis, 'raster_polygons', 'official_cgs')
+    if consider_sent:  # consider sentiment or not
         considered_fishnet_shapefiles = [file for file in os.listdir(considered_fishnet_path) if
                                          (file.endswith('.shp')) and ('with_sent' in file)]
     else:
         considered_fishnet_shapefiles = [file for file in os.listdir(considered_fishnet_path) if
                                          (file.endswith('.shp')) and ('without_sent' in file)]
-    print(considered_fishnet_shapefiles)
+    considered_official_fishnet_shapefiles = [find_related_official_fishnet_month_day(
+        file, fishnet_directory=considered_official_fishnet_path) for file in considered_fishnet_shapefiles]
+    print('Considered Weibo fishnet files: {}'.format(considered_fishnet_shapefiles))
+    print('Considered official fishnet files: {}'.format(considered_official_fishnet_shapefiles))
 
     # Create the list saving the metrics for hotspot daily validation
     setting_list, traffic_type_list = [], []
     bandwidth_list, unit_size_list = [], []
     month_list, day_list = [], []
-    PAI_weibo_list, PAI_actual_list, hotspot_area_list =  [], [], []
+    PAI_weibo_list, PAI_actual_list, hotspot_area_list = [], [], []
     weibo_in_hotspot_count_list, actual_in_hotspot_count_list, threshold_value_list = [], [], []
     false_alarm_rates_weibo, miss_detection_rates_weibo = [], []
     false_alarm_rates_actual, miss_detection_rates_actual = [], []
+    hotspot_precision_list, considered_days = [], []
     TN_weibo_list, FN_weibo_list, FP_weibo_list, TP_weibo_list = [], [], [], []
     TN_actual_list, FN_actual_list, FP_actual_list, TP_actual_list = [], [], [], []
 
     # Compute the metrics for hotspot daily validation
     print('*' * 20)
-    for shapefile in considered_fishnet_shapefiles:
+    for shapefile, official_shapefile in zip(considered_fishnet_shapefiles, considered_official_fishnet_shapefiles):
         print('Coping with the file: {}'.format(shapefile))
         consider_fishnet = gpd.read_file(os.path.join(considered_fishnet_path, shapefile), encoding='utf-8')
         raster_vals = list(consider_fishnet['raster_val'])
@@ -846,12 +880,20 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
         print('Computing the PAI....')
         PAI_weibo, weibo_count_in_hotspot = compute_pai_and_count(points=select_weibo_point,
                                                                   hotspot_shape=hotspot_area)
-        if select_actual_point.shape[0] > 1:
+        if (select_actual_point.shape[0] > 1) and (not official_shapefile):
             PAI_actual, actual_count_in_hotspot = compute_pai_and_count(points=select_actual_point,
                                                                         hotspot_shape=hotspot_area)
+            consider_official_fishnet = gpd.read_file(
+                os.path.join(considered_official_fishnet_path, official_shapefile),
+                encoding='utf-8')
+            hotspot_precision_list.append(compute_hotspot_precision(weibo_fishnet=consider_fishnet,
+                                                                    actual_fishnet=consider_official_fishnet))
+            considered_days.append(True)
         else:
             actual_count_in_hotspot = 0
             PAI_actual = 0
+            hotspot_precision_list.append(0)
+            considered_days.append(False)
         weibo_in_hotspot_count_list.append(weibo_count_in_hotspot)
         actual_in_hotspot_count_list.append(actual_count_in_hotspot)
         PAI_weibo_list.append(PAI_weibo)
@@ -880,7 +922,7 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
             FP_actual_list.append(roc_list_actual[2])  # FP
             TP_actual_list.append(roc_list_actual[3])  # TP
         else:
-            false_rate_actual = hotspot_area.shape[0]/consider_fishnet.shape[0]
+            false_rate_actual = hotspot_area.shape[0] / consider_fishnet.shape[0]
             miss_rate_actual = 'no actual'
             false_alarm_rates_actual.append(false_rate_actual)
             miss_detection_rates_actual.append(miss_rate_actual)
@@ -900,6 +942,7 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
     pai_dataframe['weibo_in_hotspot'] = weibo_in_hotspot_count_list
     pai_dataframe['actual_in_hotspot'] = actual_in_hotspot_count_list
     pai_dataframe['hotspot_area'] = hotspot_area_list
+    pai_dataframe['hotspot_precision'] = hotspot_precision_list
     pai_dataframe['bandwidth'] = bandwidth_list
     pai_dataframe['unit_size'] = unit_size_list
     pai_dataframe['threshold_val'] = threshold_value_list
@@ -934,7 +977,6 @@ def build_pai_dataframe_for_each_day(traffic_type, consider_sent=False):
 
 
 if __name__ == '__main__':
-
     # Get the fishnet having raster values
     main_extract_raster_for_fishnet(for_official=False)
     main_extract_raster_for_fishnet(for_official=True)
@@ -945,5 +987,10 @@ if __name__ == '__main__':
     build_pai_compare_dataframe_multiple_thresholds(traffic_type='cgs', threshold_num=70)
     build_pai_compare_dataframe(traffic_type='acc', considered_bandwidth=2000)
     build_pai_compare_dataframe(traffic_type='cgs', considered_bandwidth=2000)
+
+    # Evaluate the performance of the selected hotspot identification module from people's perspectives
+    build_pai_dataframe_for_each_day(traffic_type='acc', consider_sent=False)
+    build_pai_dataframe_for_each_day(traffic_type='cgs', consider_sent=False)
     ending_time = time.time()
-    print('Total time: {}h'.format(round((ending_time - starting_time)/3600, 2)))
+
+    print('Total time: {}h'.format(round((ending_time - starting_time) / 3600, 2)))
