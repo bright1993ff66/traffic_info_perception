@@ -353,13 +353,19 @@ def transform_string_time_to_datetime(time_string, target_time_zone, convert_utc
     return final_time_object
 
 
-def transform_datetime_string_to_datetime(string, target_timezone):
+def transform_datetime_string_to_datetime(string, target_timezone, source_timezone=timezone_shanghai):
     """
+    Transform a datetime string to the corresponding datetime. The timezone is in +8:00
     :param string: the string which records the time of the posted tweets(this string's timezone is HK time)
+    :param target_timezone: the target timezone datetime object
+    :param source_timezone: the source timezone of datetime string, default: pytz.timezone("Asia/Shanghai")
     :return: a datetime object which could get access to the year, month, day easily
     """
-    datetime_object = datetime.strptime(string, '%Y-%m-%d %H:%M:%S+08:00')
-    final_time_object = datetime_object.replace(tzinfo=target_timezone)
+    datetime_object = datetime.strptime(string, '%Y-%m-%d %H:%M:%S%z').replace(tzinfo=source_timezone)
+    if source_timezone != target_timezone:
+        final_time_object = datetime_object.replace(tzinfo=target_timezone)
+    else:
+        final_time_object = datetime_object
     return final_time_object
 
 
