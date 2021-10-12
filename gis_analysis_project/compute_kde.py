@@ -12,16 +12,19 @@ from data_paths import project_path, figures_path
 env.workspace = "D:\Projects\Traffic_info_perception\gis_analysis_project\kde_analysis\shapefile"
 env.overwriteOutput = True
 
+# Load the paths for KDE analysis and save the results
 shapefile_path = os.path.join(project_path, 'gis_analysis_project')
 kde_analysis = os.path.join(shapefile_path, 'kde_analysis')
 kde_analysis_on_each_day = os.path.join(kde_analysis, 'kde_on_each_day')
+
 save_path = os.path.join(kde_analysis, 'sensitivity')
 tif_save_path = os.path.join(save_path, 'tif_files')
 raster_table_save_path = os.path.join(save_path, 'raster_table')
+polygon_save_path = os.path.join(save_path, 'polygon_path')
+array_value_path = os.path.join(save_path, 'density_vals')
+hotspot_figure_path = os.path.join(save_path, 'find_hotspot_figures')
 raster_table_with_sent = os.path.join(raster_table_save_path, 'with_sent')
 raster_table_without_sent = os.path.join(raster_table_save_path, 'without_sent')
-
-polygon_save_path = os.path.join(save_path, 'polygon_path')
 polygon_temp_path = os.path.join(polygon_save_path, 'temp')
 polygon_units_path = os.path.join(polygon_save_path, 'polygons')
 polygon_sent_temp = os.path.join(polygon_save_path, 'sent_temp')
@@ -29,9 +32,8 @@ polygon_without_sent_temp = os.path.join(polygon_save_path, 'without_sent_temp')
 polygon_path_with_sent = os.path.join(polygon_save_path, 'with_sent')
 polygon_path_without_sent = os.path.join(polygon_save_path, 'without_sent')
 
-array_value_path = os.path.join(save_path, 'density_vals')
-hotspot_figure_path = os.path.join(save_path, 'find_hotspot_figures')
 
+# Specify some hyperparameters
 bandwidths = [1000, 2000, 3000]
 spatial_unit_sizes = [200, 260, 300]
 std_sizes_check = [2, 3]
@@ -255,7 +257,6 @@ def compare_kernel_density(inFeature_filename, consider_sent, bandwidth_list, un
                         print("Copy Raster example failed.")
                         print(arcpy.GetMessages())
 
-
                 print('The mean is: {}'.format(output_density.mean))
                 print('The std is: {}'.format(output_density.standardDeviation))
                 print('The minimum is: {}'.format(output_density.minimum))
@@ -283,7 +284,7 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
     print('Coping with the point feature: {}'.format(inFeature_points))
     print('Considering the sentiment or not: {}'.format(consider_sent))
 
-    # Check the traffic type to run
+    # Get the traffic type information
     if 'acc' in inFeature_points:
         traffic_type = 'acc'
     else:
@@ -296,9 +297,9 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
         populationField = None
 
     # In Raster value
-    inRaster=100
+    inRaster = 100
 
-    # Compute the kernel density values, tune the bandwidth and unit size
+    # Compute the kernel density values, tuning the bandwidth and unit size
     for bandwidth in bandwidth_list:
         for unit_size in unit_size_list:
             print('Coping with the setting: bandwidth: {}, spatial unit size: {}'.format(
@@ -309,8 +310,8 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
                 population_field=populationField,
                 cell_size=unit_size,
                 search_radius=bandwidth,
-                area_unit_scale_factor='SQUARE_KILOMETERS',
-                out_cell_values='DENSITIES',
+                area_unit_scale_factor='SQUARE_KILOMETERS',  # set the scale factor to square kilometers
+                out_cell_values='DENSITIES',  # compute the kernel densities based on point feature
                 method='PLANAR')
             output_density_100 = inRaster * output_density
             # Save the computed kernel density raster
@@ -344,9 +345,6 @@ def compare_kernel_for_roc(inFeature_points, consider_sent, bandwidth_list, unit
 
 
 if __name__ == '__main__':
-    considered_months_list = [6, 7, 8]
-    considered_days_list = list(range(1, 32))
-
     # Compute the KDE for Weibo accident and Weibo congestion
     compare_kernel_for_roc(inFeature_points='weibo_accident.shp', consider_sent=True,
                            bandwidth_list=bandwidths, unit_size_list=spatial_unit_sizes,
