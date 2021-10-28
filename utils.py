@@ -1,21 +1,57 @@
-import os
-import pandas as pd
-import numpy as np
-from collections import Counter
+# -*- coding: utf-8 -*-
+# @Time    : 2021/9/27 18:54
+# @Author  : Haoliang Chang
 import itertools
+import os
+import re
+import csv
+from collections import Counter
+from datetime import datetime
+from random import sample
+import json
+from json.decoder import JSONDecodeError
+
 import networkx as nx
+import numpy as np
+import pandas as pd
+import pytz
 from colour import Color
 from geopy.distance import geodesic
-from sklearn.preprocessing import StandardScaler
 from matplotlib.colors import LinearSegmentedColormap
+from sklearn.preprocessing import StandardScaler
+import geopandas as gpd
 
-import re
-from random import sample
-import pytz
-from datetime import datetime
+from data_paths import kde_analysis, shapefile_path
+
+kde_compare_path = os.path.join(kde_analysis, 'kde_compare')
 
 # Specify the timezone in Shanghai
 timezone_shanghai = pytz.timezone('Asia/Shanghai')
+
+# traffic-related word dictionary
+traffic_word_set_update = {'堵', '拥堵', '阻塞', '塞车', '拥挤', '车祸', '剐蹭', '事故', '撞', '追尾', '相撞', '路况', '路段',
+                           '路线', '封道', '封路', '绕行', '畅通', '立交', '高架', '快速路', '大桥', '隧道', '驾驶', '避让',
+                           '车距'}
+congestion_traffic_word_set = {'堵', '拥堵', '阻塞', '塞车', '拥挤'}
+accident_traffic_word_set = {'车祸', '剐蹭', '事故', '撞', '追尾', '相撞'}
+# the user id of official traffic informaiton social media accounts in Shanghai
+# 1980308627: 乐行上海:
+# https://weibo.com/lexingsh?from=page_100206_profile&wvr=6&mod=bothfollow&refer_flag=1005050010_&is_all=1
+# 1750349294: 上海交通广播
+# https://weibo.com/shjtgb?is_all=1
+# 1976304153: 上海市交通委员会
+# https://weibo.com/p/1001061976304153/home?from=page_100106&mod=TAB&is_hot=1#place
+traffic_acount_uid = {1980308627, 1750349294, 1976304153}
+# some selected accounts for analysis
+# 2539961154: 上海发布
+# https://weibo.com/shanghaicity?topnav=1&wvr=6&topsug=1&is_hot=1
+# 1763251165: 宣克灵
+# https://weibo.com/xuankejiong?topnav=1&wvr=6&topsug=1&is_hot=1
+# 2256231983: 上海热门资讯
+# https://weibo.com/209273419?topnav=1&wvr=6&topsug=1&is_hot=1
+# 1971537652: 魔都生活圈
+# https://weibo.com/u/1971537652?topnav=1&wvr=6&topsug=1&is_hot=1
+traffic_acount_uid_final = {2539961154, 1763251165, 2256231983, 1971537652}
 
 # Specify the random seed
 random_seed = 7
@@ -23,6 +59,10 @@ np.random.seed(random_seed)
 
 # Set the standard scaler
 scaler = StandardScaler()
+
+# Load the shanghai shape
+shanghai_shape = gpd.read_file(os.path.join(shapefile_path, 'overall', 'shanghai_proj_utm_51.shp'),
+                               encoding='utf-8')
 
 
 def delete_user(text):
@@ -35,6 +75,20 @@ def delete_user(text):
     return result_text
 
 
+def get_url(text_string):
+    """
+    Get the url of a Weibo given a Weibo string
+    :param text_string: a Weibo text string
+    :return: the url of the studied Weibo string
+    """
+    if not isinstance(text_string, str):  # Ensure that the input is a string
+        return "No URL"
+    elif 'http' not in text_string:  # If the string does not contain url
+        return "No URL"
+    else:  # Return the url of the studied Weibo
+        return 'http' + text_string.split("http", 1)[1]
+
+
 def merge_dict(sum_dict, a_dict):
     """
     Merge a sum dictionary and a dictionary for a csv file
@@ -43,13 +97,74 @@ def merge_dict(sum_dict, a_dict):
         a_dict: a count dict for a csv tweet file
     Returns: a sum_dict which has added values from a_dict
     """
-    if a_dict == Counter(): return sum_dict
+    if a_dict == Counter():
+        return sum_dict
     for key in a_dict:
         sum_dict[key] += a_dict[key]
     return sum_dict
 
 
-def normalize_data(dataframe, select_columns: list, density_threshold: int):
+def rename_columns(studied_weibo_dataframe: pd.DataFrame or gpd.geodataframe.GeoDataFrame) -> pd.DataFrame:
+    """
+    Rename the columns of a dataframe to a structured format
+    :param studied_weibo_dataframe: a studied weibo dataframe
+    :return: the reformatted weibo dataframe
+    """
+    if 'retweete_1' in studied_weibo_dataframe:  # cope with the output from the silly arcmap
+        rename_dict_info = {'traffic_we': 'traffic_weibo', 'traffic_re': 'traffic_repost',
+                            'retweete_1': 'retweeters_text'}
+        renamed_data = studied_weibo_dataframe.rename(columns=rename_dict_info)
+    else:
+        renamed_data = studied_weibo_dataframe.copy()
+
+    if 'loc_lat' in renamed_data:  # For latitude and longitude information
+        dropped_data = renamed_data.drop(columns=['lat', 'lon'])
+        rename_dict_loc = {'loc_lon': 'lon', 'loc_lat': 'lat'}
+        final_data = dropped_data.rename(columns=rename_dict_loc)
+    else:
+        final_data = renamed_data.copy()
+
+    if 'sent_repost' in final_data or 'retweeters_ids' in final_data:  # match the previous output
+        final_data_renamed = final_data.rename(columns={'sent_repost': 'sent_repos',
+                                                        'retweeters_ids': 'retweeters',
+                                                        'retweets_id': 'retweet_ids'})
+    else:
+        final_data_renamed = final_data.copy()
+
+    if 'Name' in final_data:  # If the district information is provided
+        considered_columns = ['index_val', 'author_id', 'weibo_id', 'created_at', 'text', 'lat',
+                              'lon', 'retweeters', 'retweeters_text', 'retweet_ids', 'local_time',
+                              'year', 'month', 'traffic_weibo', 'traffic_repost', 'Name', 'datatype',
+                              'traffic_type']
+    else:  # If the district information is not provided
+        considered_columns = ['index_val', 'author_id', 'weibo_id', 'created_at', 'text', 'lat',
+                              'lon', 'retweeters', 'retweeters_text', 'retweet_ids', 'local_time',
+                              'year', 'month', 'traffic_weibo', 'traffic_repost', 'datatype',
+                              'traffic_type']
+    return final_data_renamed[considered_columns]
+
+
+def assign_sentiment_info(studied_weibo_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Get the "sent_val" column in the KDE analysis
+    :param studied_weibo_data: one traffic-related Weibo data
+    :return: an updated dataframe with another "sent_val" column for the following KDE analysi
+    """
+    assert 'sent_weibo' in studied_weibo_data, "The dataframe should contain the sentiment of Weibo."
+    studied_weibo_data_copy = studied_weibo_data.copy()
+
+    def get_sent_val(sent_value: int) -> int:
+        if sent_value == 0:
+            return 1
+        else:
+            return 0
+
+    studied_weibo_data_copy['sent_val'] = studied_weibo_data_copy.apply(lambda row: get_sent_val(row['sent_weibo']),
+                                                                        axis=1)
+    return studied_weibo_data_copy
+
+
+def normalize_data(dataframe: pd.DataFrame, select_columns: str, density_threshold: float):
     """
     Normalize the selected columns of a pandas dataframe.
     Each selected column would be normalized with mean 0 and std 1
@@ -66,7 +181,123 @@ def normalize_data(dataframe, select_columns: list, density_threshold: int):
     return data_final
 
 
-def get_dataframe_in_gmm_clusters(dataframe, cluster_id_dict, save_path, traffic_event_type: str):
+def describe_traffic_type(dataframe: pd.DataFrame):
+    """
+    Give descriptive statistics of traffic type
+    :param dataframe: a pandas dataframe saving the traffic-related messages (either Weibo or actual records)
+    :return: None. The descriptive statistics are printed
+    """
+    assert 'traffic_type' in dataframe, "The dataframe should have a column named 'traffic_type'"
+    traffic_type_counter = Counter(dataframe['traffic_type'])
+    print('Sum: {}; Accident-related: {}; Congestion-related: {}'.format(
+        sum(traffic_type_counter.values()), traffic_type_counter['accident'], traffic_type_counter['congestion']))
+
+
+def transform_string_time_to_datetime(time_string, target_time_zone, convert_utc_time=False):
+    """
+    Transform the string time to the datetime
+    :param time_string: a time string
+    :param target_time_zone: the target time zone
+    :param convert_utc_time: whether transfer the datetime object to utc first. This is true when the
+    time string is recorded as the UTC time
+    :return: a structured datetime object
+    """
+    datetime_object = datetime.strptime(time_string, '%a %b %d %H:%M:%S %z %Y')
+    if convert_utc_time:
+        final_time_object = datetime_object.replace(tzinfo=pytz.utc).astimezone(target_time_zone)
+    else:
+        final_time_object = datetime_object.astimezone(target_time_zone)
+    return final_time_object
+
+
+def transform_datetime_string_to_datetime(string, target_timezone, source_timezone=timezone_shanghai):
+    """
+    Transform a datetime string to the corresponding datetime. The timezone is in +8:00
+    :param string: the string which records the time of the posted tweets(this string's timezone is HK time)
+    :param target_timezone: the target timezone datetime object
+    :param source_timezone: the source timezone of datetime string, default: pytz.timezone("Asia/Shanghai")
+    :return: a datetime object which could get access to the year, month, day easily
+    """
+    datetime_object = datetime.strptime(string, '%Y-%m-%d %H:%M:%S%z').replace(tzinfo=source_timezone)
+    if source_timezone != target_timezone:
+        final_time_object = datetime_object.replace(tzinfo=target_timezone)
+    else:
+        final_time_object = datetime_object
+    return final_time_object
+
+
+def encode_time(time_string, target_timezone=timezone_shanghai):
+    """
+    Encode the time string in the official traffic accident dataframe
+    :param time_string: a string records the time
+    :param target_timezone: the target timezone
+    :return: the datetime object
+    """
+    date_str, time_str = time_string.split(' ')
+    if '/' in time_string:
+        year, month, day = date_str.split('/')
+        hour, minute = time_str.split(':')
+    elif '-' in time_string:
+        year, month, day = date_str.split('-')
+        hour, minute, _ = time_str.split(':')
+    else:
+        raise ValueError('Something wrong with the time string. Use datetime package instead!')
+    return datetime(int(year), int(month), int(day), int(hour), int(minute), 0, tzinfo=target_timezone)
+
+
+def get_tpr_fpr_for_used_threshold(traffic_type: str, for_weibo: bool) -> dict:
+    assert traffic_type in {'acc', 'cgs'}, "The traffic type should be either 'acc' or 'cgs'"
+
+    if traffic_type == 'acc':
+        compare_dataframe = pd.read_csv(os.path.join(kde_compare_path, 'acc_kde_compare_given_threshold.csv'),
+                                        index_col=0, encoding='utf-8')
+    else:
+        compare_dataframe = pd.read_csv(os.path.join(kde_compare_path, 'cgs_kde_compare_given_threshold.csv'),
+                                        index_col=0, encoding='utf-8')
+    if for_weibo:
+        result_dict = {(row.consider_sent, str(row.unit_size)): (row.TPR_weibo, row.FPR_weibo)
+                       for _, row in compare_dataframe.iterrows()}
+    else:
+        result_dict = {(row.consider_sent, str(row.unit_size)): (row.TPR_actual, row.FPR_actual)
+                       for _, row in compare_dataframe.iterrows()}
+    return result_dict
+
+
+def spatial_join(weibo_gdf: gpd.geodataframe, shape_area: gpd.geodataframe) -> gpd.geodataframe:
+    """
+    Find the tweets posted in one city's open space
+    :param weibo_gdf: the geopandas dataframe saving the tweets
+    :param shape_area: the shapefile of a studied area, such as city, open space, etc
+    :return: tweets posted in open space
+    """
+    assert weibo_gdf.crs == shape_area.crs, 'The coordinate systems do not match!'
+    joined_data = gpd.sjoin(left_df=weibo_gdf, right_df=shape_area, op='within')
+    joined_data_final = joined_data.drop_duplicates(subset=['weibo_id'])
+    return joined_data_final
+
+
+def assign_districts(weibo_dataframe: pd.DataFrame, shape_area: gpd.geodataframe):
+    """
+    Assign the districts based on the pandas Weibo dataframe and the area shapefile
+    :param weibo_dataframe: the pandas dataframe saving the Weibo data
+    :param shape_area: the geopandas shapefile of the studied area
+    :return: the weibo dataframe with district information
+    """
+    assert 'Name' in shape_area, "The area shapefile should contain the name of districts"
+    # assert 'Eng_Name' in shape_area, "The area shapefile should contain the English name of districts"
+
+    used_crs_epsg = shape_area.crs.to_epsg()
+    weibo_dataframe_reformat = rename_columns(studied_weibo_dataframe=weibo_dataframe)
+    weibo_shapefile = gpd.GeoDataFrame(
+        weibo_dataframe_reformat, geometry=gpd.points_from_xy(
+            weibo_dataframe_reformat.lon, weibo_dataframe_reformat.lat)).set_crs(epsg=4326).to_crs(epsg=used_crs_epsg)
+    shape_area_geometry = shape_area[['geometry', 'Name']]
+    weibo_select = spatial_join(weibo_gdf=weibo_shapefile, shape_area=shape_area_geometry)
+    return weibo_select
+
+
+def get_dataframe_in_gmm_clusters(dataframe: pd.DataFrame, cluster_id_dict: dict, save_path: str,
+                                  traffic_event_type: str):
     """
     Get the dataframe for each gmm cluster
     :param dataframe: a pandas dataframe saving the hotspot index information for each Weibo
@@ -86,7 +317,7 @@ def get_dataframe_in_gmm_clusters(dataframe, cluster_id_dict, save_path, traffic
                                                                               repost_column='retweeters_text')
         total_count = pos_count + neutral_count + neg_count
         print('For {}, we have got {} Weibos and their reposts'.format(cluster_name, total_count))
-        cluster_dataframe.to_csv(os.path.join(save_path, traffic_event_type+'_gmm_{}.csv'.format(cluster_name)))
+        cluster_dataframe.to_csv(os.path.join(save_path, traffic_event_type + '_gmm_{}.csv'.format(cluster_name)))
 
 
 def get_traffic_dataframes(dataframe: pd.DataFrame):
@@ -117,7 +348,7 @@ def get_traffic_dataframes(dataframe: pd.DataFrame):
 def create_weibo_count_table(traffic_weibo_dataframe: pd.DataFrame):
     """
     Create a descriptive statistics information about the traffic Weibo dataframe
-    :param dataframe: a traffic Weibo dataframe
+    :param traffic_weibo_dataframe: a traffic Weibo dataframe
     :return: None. A descriptive statistics about the number of traffic relevant Weibos based on
     geocoded/nongeocoded, accident/congestion/other will be printed
     """
@@ -150,9 +381,9 @@ def create_weibo_count_table(traffic_weibo_dataframe: pd.DataFrame):
         nongeocoded_cgs_count += non_geocoded_cgs_data.shape[0]
         nongeocoded_other_count += non_geocoded_other_data.shape[0]
     print('=' * 20)
-    print('In total, we have got {} Weibos'.format(geocoded_acc_count+geocoded_cgs_count+
-                                                   geocoded_other_count+nongeocoded_acc_count+
-                                                   nongeocoded_cgs_count+nongeocoded_other_count))
+    print('In total, we have got {} Weibos'.format(geocoded_acc_count + geocoded_cgs_count +
+                                                   geocoded_other_count + nongeocoded_acc_count +
+                                                   nongeocoded_cgs_count + nongeocoded_other_count))
     print('Geocoded Accident: {}'.format(geocoded_acc_count))
     print('Geocoded Congestion: {}'.format(geocoded_cgs_count))
     print('Geocoded Other: {}'.format(geocoded_other_count))
@@ -176,8 +407,7 @@ def count_positive_neutral_negative(dataframe, repost_column: str):
     rename_dict = {'traffic_we': 'traffic_weibo', 'traffic_re': 'traffic_repost', 'retweete_1': 'retweeters_text'}
     renamed_data = dataframe.rename(columns=rename_dict).reset_index(drop=True)
 
-    # repost_dataframe_weibo = renamed_data.loc[renamed_data[repost_column] != 'no retweeters']  # Get all the reposts
-    # repost_dataframe_repost = repost_dataframe_weibo.drop_duplicates(subset=['retweeters_text'])
+    # Use the sentiment of Weibo, not repost
     weibo_dataframe = renamed_data.loc[renamed_data[repost_column] == 'no retweeters']
     repost_dataframe = renamed_data.loc[renamed_data[repost_column] != 'no retweeters']
     pos_count, neutral_count, neg_count = 0, 0, 0
@@ -232,7 +462,7 @@ def get_edge_embedding_for_mlp(edge_list, embedding_dict, concatenate_or_not=Tru
     :param concatenate_or_not: whether we concatenate two node embeddings or not
     :return: the embeddings for edges of a graph
     """
-    embs = []
+    embeddings = []
     for edge in edge_list:
         node_id1 = edge[0]
         node_id2 = edge[1]
@@ -240,11 +470,11 @@ def get_edge_embedding_for_mlp(edge_list, embedding_dict, concatenate_or_not=Tru
         emb2 = embedding_dict[node_id2]
         if concatenate_or_not:
             emb_concat = np.concatenate([emb1, emb2], axis=0)
-            embs.append(emb_concat)
+            embeddings.append(emb_concat)
         else:
             emb_multiply = np.multiply(emb1, emb2)
-            embs.append(emb_multiply)
-    return embs
+            embeddings.append(emb_multiply)
+    return embeddings
 
 
 def get_network_statistics(g):
@@ -318,7 +548,11 @@ def create_labelled_dataframe(dataframe):
 
 
 def combine_some_data(path, sample_num: int = None) -> pd.DataFrame:
-    """Combine some random sampled dataframes from a local path"""
+    """
+    Combine some random sampled dataframes from a local path
+    :param path: an interested path
+    :param sample_num: the number of files we want to consider
+    """
     files = os.listdir(path)
     if not sample_num:
         random_sampled_files = files
@@ -336,50 +570,194 @@ def combine_some_data(path, sample_num: int = None) -> pd.DataFrame:
     return concat_dataframe_reindex
 
 
-def transform_string_time_to_datetime(time_string, target_time_zone, convert_utc_time=False):
+def get_weibo_from_users(path, user_set):
     """
-    Transform the string time to the datetime
-    :param time_string: a time string
-    :param target_time_zone: the target time zone
-    :param convert_utc_time: whether transfer the datetime object to utc first. This is true when the
-    time string is recorded as the UTC time
-    :return:
+    Get the Weibo data posted from a set of users, considering both the original post and repost
+    :param path: a Weibo data path
+    :param user_set: a set of social media users
+    :return: a Weibo dataframe posted from a set of users
     """
-    datetime_object = datetime.strptime(time_string, '%a %b %d %H:%M:%S %z %Y')
-    if convert_utc_time:
-        final_time_object = datetime_object.replace(tzinfo=pytz.utc).astimezone(target_time_zone)
+    official_account_data_list = []
+    for file in os.listdir(path):
+        print('Coping with the file: {}'.format(file))
+        dataframe = pd.read_csv(os.path.join(path, file), encoding='utf-8', index_col=0)
+        assert "author_id" in dataframe, "The dataframe should contain a column named 'author_id'"
+        assert "retweeters_ids" in dataframe, "The dataframe should contain a column named 'retweeters_ids'"
+        decision1 = (dataframe['author_id'].isin(user_set))
+        decision2 = (dataframe['retweeters_ids'].isin(user_set))
+        dataframe_select = dataframe.loc[decision1 | decision2]
+        official_account_data_list.append(dataframe_select)
+    concat_data = pd.concat(official_account_data_list, axis=0)
+    return concat_data
+
+
+def get_weibos_from_users_csv(path: str, filename: str, save_path: str, save_filename: str, user_set: set) -> None:
+    """
+    Get the Weibos posted from users, given a set storing the id of the desired users
+    :param path: the path saving the Weibo csv files
+    :param filename: the name of the considered file
+    :param save_path: the path used to save the Weibos posted by these users in csv format
+    :param save_filename: the saved filename
+    :param user_set: a set saving the considered users
+    :return: None. The result is saved to a local directory specified by the argument "save_path"
+    """
+    with open(os.path.join(path, filename), 'r', encoding='utf-8') as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+        counter = 1
+        with open(os.path.join(save_path, save_filename), 'w', encoding='utf-8') as new_file:
+            field_names = ['author_id', 'weibo_id', 'created_at', 'text', 'lat', 'lon', 'retweeters_ids',
+                           'retweeters_text', 'retweets_id']
+            csv_writer = csv.DictWriter(new_file, fieldnames=field_names)
+            csv_writer.writeheader()
+            for line in csv_reader:
+                decision1 = line['author_id'] in user_set
+                decision2 = line['retweeters_ids'] in user_set
+                if decision1 or decision2:
+                    print('found {} weibo'.format(counter))
+                    csv_writer.writerow(line)
+
+
+def get_weibos_from_users_json(data_path, json_filename, save_path, user_set):
+    """
+    Get Weibo data posted from a user id set based on the json files
+    :param data_path: path saving the Sina Weibo data
+    :param json_filename: the studied json_filename
+    :param save_path: path used to save the data
+    :param user_set: a set containing the studied user ids
+    :return: None
+    """
+    with open(os.path.join(data_path, json_filename), encoding='utf-8', errors='ignore') as json_file:
+
+        time_list = []
+        user_id_list = []
+        weibo_id_list = []
+        text_list = []
+        geo_type_list = []
+        lat_list = []
+        lon_list = []
+        retweeters_id_list = []
+        retweets_weibo_id_list = []
+        retweeters_text_list = []
+
+        counter = 0
+
+        for line in json_file:
+            try:
+                data = json.loads(line)
+                tweet_list = data['statuses']
+                for index, weibo in enumerate(tweet_list):
+                    decision1 = weibo['uid'] in user_set
+                    try:
+                        decision2 = weibo['retweeted_status']['uid'] in user_set
+                    except (KeyError, TypeError) as e:
+                        decision2 = False
+
+                    if decision1 or decision2:
+                        time_list.append(weibo['created_at'])
+                        user_id_list.append(weibo['uid'])
+                        text_list.append(weibo['text'])
+                        weibo_id_list.append(weibo['id'])
+                        try:
+                            weibo_geo_info = weibo['geo']
+                            lat_list.append(str(weibo_geo_info['coordinates'][0]))
+                            lon_list.append(str(weibo_geo_info['coordinates'][1]))
+                            geo_type_list.append(weibo_geo_info['type'])
+                        except (KeyError, TypeError) as e:
+                            lat_list.append('Not Given')
+                            lon_list.append('Not Given')
+                            geo_type_list.append('Not Given')
+                        try:
+                            retweeted_statuses = weibo['retweeted_status']
+                            retweeters_id_list.append(retweeted_statuses['uid'])
+                            retweeters_text_list.append(retweeted_statuses['text'])
+                            retweets_weibo_id_list.append(retweeted_statuses['id'])
+                        except (KeyError, TypeError) as e:
+                            retweeters_id_list.append(0)
+                            retweeters_text_list.append('no retweeters')
+                            retweets_weibo_id_list.append('no retweets')
+            except JSONDecodeError as e_1:
+                print('The error line is: {}'.format(line))
+                print('ignore')
+            except TypeError as e_2:
+                print('The error line is: {}'.format(line))
+                print('ignore')
+
+            if len(weibo_id_list) > 100000:
+                counter += 1
+
+                print('{} weibos have been processed!'.format(len(weibo_id_list)))
+                result_dataframe = pd.DataFrame(columns=['author_id', 'weibo_id', 'created_at', 'text', 'lat',
+                                                         'lon', 'loc_type', 'retweeters_ids',
+                                                         'retweeters_text', 'retweets_id'])
+                result_dataframe['author_id'] = user_id_list
+                result_dataframe['weibo_id'] = weibo_id_list
+                result_dataframe['created_at'] = time_list
+                result_dataframe['text'] = text_list
+                result_dataframe['lat'] = lat_list
+                result_dataframe['lon'] = lon_list
+                result_dataframe['loc_type'] = geo_type_list
+                result_dataframe['retweeters_ids'] = retweeters_id_list
+                result_dataframe['retweeters_text'] = retweeters_text_list
+                result_dataframe['retweets_id'] = retweets_weibo_id_list
+                result_dataframe.to_csv(os.path.join(save_path, json_filename[:9] + '_{}.csv'.format(counter)),
+                                        encoding='utf-8')
+                # release memory
+                user_id_list = []
+                weibo_id_list = []
+                time_list = []
+                text_list = []
+                lat_list = []
+                lon_list = []
+                geo_type_list = []
+                retweeters_id_list = []
+                retweeters_text_list = []
+                retweets_weibo_id_list = []
+
+        result_dataframe = pd.DataFrame(columns=['author_id', 'weibo_id', 'created_at', 'text', 'lat',
+                                                 'lon', 'loc_type', 'retweeters_ids',
+                                                 'retweeters_text', 'retweets_id'])
+        result_dataframe['author_id'] = user_id_list
+        result_dataframe['weibo_id'] = weibo_id_list
+        result_dataframe['created_at'] = time_list
+        result_dataframe['text'] = text_list
+        result_dataframe['lat'] = lat_list
+        result_dataframe['lon'] = lon_list
+        result_dataframe['loc_type'] = geo_type_list
+        result_dataframe['retweeters_ids'] = retweeters_id_list
+        result_dataframe['retweeters_text'] = retweeters_text_list
+        result_dataframe['retweets_id'] = retweets_weibo_id_list
+        result_dataframe.to_csv(os.path.join(save_path, json_filename[:9] + '_final.csv'), encoding='utf-8')
+
+
+def get_traffic_type(dataframe: pd.DataFrame, text_colname: str = 'text', return_counter: bool = False) \
+        -> Counter or pd.DataFrame:
+    """
+    Annotate the Weibos posted by official traffic account with different traffic information type
+    :param dataframe: the dataframe saving Weibos posted by official traffic account in Shanghai
+    :param text_colname: the name of the column saving the type of traffic-related event with location information
+    :param return_counter: print the traffic type directly or not
+    :return: dataframe with traffic info type annotation, saved in its 'traffic_type' column
+    """
+    assert 'text' in dataframe, 'The text column should contain Weibo text posted by official traffic account.'
+    traffic_type_list = []
+    for index, row in dataframe.iterrows():
+        decision1 = any(acc_word in row[text_colname] for acc_word in accident_traffic_word_set)
+        decision2 = any(congestion_word in row[text_colname] for congestion_word in congestion_traffic_word_set)
+        if decision1 and decision2:  # contain both accident and congestion keywords -> check manually
+            traffic_type_list.append('acc-cgs')
+        elif decision1 and (not decision2):  # contains one accident keyword but not congestion keyword -> accident
+            traffic_type_list.append('accident')
+        elif (not decision1) and decision2:  # contains one congestion keyword but not accident keyword -> congestion
+            traffic_type_list.append('congestion')
+        else:  # Other cases -> a description of traffic condition
+            traffic_type_list.append('condition')
+    if return_counter:
+        traffic_type_counter = Counter(traffic_type_list)
+        return traffic_type_counter
     else:
-        final_time_object = datetime_object.astimezone(target_time_zone)
-    return final_time_object
-
-
-def transform_datetime_string_to_datetime(string, target_timezone, source_timezone=timezone_shanghai):
-    """
-    Transform a datetime string to the corresponding datetime. The timezone is in +8:00
-    :param string: the string which records the time of the posted tweets(this string's timezone is HK time)
-    :param target_timezone: the target timezone datetime object
-    :param source_timezone: the source timezone of datetime string, default: pytz.timezone("Asia/Shanghai")
-    :return: a datetime object which could get access to the year, month, day easily
-    """
-    datetime_object = datetime.strptime(string, '%Y-%m-%d %H:%M:%S%z').replace(tzinfo=source_timezone)
-    if source_timezone != target_timezone:
-        final_time_object = datetime_object.replace(tzinfo=target_timezone)
-    else:
-        final_time_object = datetime_object
-    return final_time_object
-
-
-def encode_time(time_string):
-    """
-    Encode the time string in the official traffic accident dataframe
-    :param time_string:
-    :param target_timezone:
-    :return:
-    """
-    date_str, time_str = time_string.split(' ')
-    year, month, day = date_str.split('/')
-    hour, minute = time_str.split(':')
-    return datetime(int(year), int(month), int(day), int(hour), int(minute), 0)
+        dataframe_copy = dataframe.copy()
+        dataframe_copy['traffic_type'] = traffic_type_list
+        return dataframe_copy
 
 
 def get_weibos_in_given_day(dataframe: pd.DataFrame, check_month: int, check_day: int, save_path: str,
@@ -399,7 +777,7 @@ def get_weibos_in_given_day(dataframe: pd.DataFrame, check_month: int, check_day
     dataframe_copy['month'] = dataframe_copy.apply(lambda row: row['local_time'].month, axis=1)
     dataframe_copy['day'] = dataframe_copy.apply(lambda row: row['local_time'].day, axis=1)
     dataframe_select = dataframe_copy.loc[
-        (dataframe_copy['month'] == check_month) & (dataframe_copy['day'] == check_day)]
+        (dataframe_copy['month'] == check_month) & (dataframe_copy['day'] == check_day)].reset_index(drop=True)
     dataframe_select.to_csv(os.path.join(save_path, save_filename))
 
 
@@ -422,8 +800,9 @@ def create_cmap_from_gmm_labels(label_list: list, color_list: list):
     """
     Create the colormaps based on the label list
     :param label_list: a label list which map each color given in the color list
-    :param color_list: a color list having the colors you want to use. For instance: color_list = ['#dc2624',
-    '#2b4750', '#45a0a2', '#e87a59', '#7dcaa9', '#649e7d',  '#dc8018', '#c89f91', '#6c6d6c', '#4f6268', '#c7cccf']
+    :param color_list: a color list having the colors you want to use. For instance:
+    color_list = ['#dc2624', '#2b4750', '#45a0a2', '#e87a59', '#7dcaa9', '#649e7d',  '#dc8018',
+    '#c89f91', '#6c6d6c', '#4f6268', '#c7cccf']
     :return: a matplotlib color map that can be used in ax.scatter
     """
     color_iter = itertools.cycle(color_list)
@@ -441,7 +820,6 @@ def create_cmap_from_gmm_labels(label_list: list, color_list: list):
 
 
 def build_train_data(augment_dataframe: pd.DataFrame, num_for_label: int):
-
     """
     Build the augmented training dataframe.
     The augmentation process is followed by https://github.com/zhanlaoban/EDA_NLP_for_Chinese
